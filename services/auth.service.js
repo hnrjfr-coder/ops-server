@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../lib/prisma.js";
 import { getSupabaseAdmin } from "../lib/supabase.js";
-import { accountTypes, isValidRegistrationOption, supervisors } from "../config/registration-options.js";
+import { accountTypes, isValidRegistrationOption } from "../config/registration-options.js";
 
 const publicUser = (user) => {
   const { passwordHash: _passwordHash, ...safeUser } = user;
@@ -135,9 +135,7 @@ export async function getRegistrationOptions() {
     orderBy: { name: "asc" },
   });
   return {
-    supervisors: activeSupervisors.length
-      ? activeSupervisors.map((user) => ({ value: user.id, label: user.name }))
-      : supervisors,
+    supervisors: activeSupervisors.map((user) => ({ value: user.id, label: user.name })),
     accountTypes,
   };
 }

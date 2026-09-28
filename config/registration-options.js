@@ -1,8 +1,3 @@
-export const supervisors = [
-  { value: "supervisor-1", label: "Supervisor One" },
-  { value: "supervisor-2", label: "Supervisor Two" },
-];
-
 export const accountTypes = [
   { value: "EMPLOYEE", label: "Employee" },
   { value: "SUPERVISOR", label: "Supervisor" },
