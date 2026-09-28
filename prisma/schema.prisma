@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["ops"]
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  name          String        @default("")
+  passwordHash  String?
+  role          String        @default("EMPLOYEE")
+  status        String        @default("ACTIVE")
+  phone         String?
+  managerId     String?
+  manager       User?         @relation("SupervisorEmployees", fields: [managerId], references: [id], onDelete: SetNull)
+  managedEmployees User[]     @relation("SupervisorEmployees")
+  supervisor    String?
+  accountType   String        @default("EMPLOYEE")
+  department    String?
+  bank          String?
+  accountName   String?
+  accountNumber String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  work          WorkSubmission[]
+  payments      PaymentRequest[]
+  supervisedWork WorkSubmission[] @relation("SupervisorWork")
+  supervisedPayments PaymentRequest[] @relation("SupervisorPayments")
+
+  @@schema("ops")
+}
+
+model WorkSubmission {
+  id          String          @id @default(cuid())
+  title       String
+  description String
+  category    String
+  completedAt DateTime
+  amount      Int
+  notes       String?
+  status      String          @default("PENDING")
+  submittedAt DateTime        @default(now())
+  approvedAt  DateTime?
+  updatedAt   DateTime        @updatedAt
+  employeeId  String
+  employee    User            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  supervisorId String?
+  supervisor  User?           @relation("SupervisorWork", fields: [supervisorId], references: [id], onDelete: SetNull)
+  payment     PaymentRequest?
+
+  @@index([employeeId])
+  @@index([status])
+  @@schema("ops")
+}
+
+model PaymentRequest {
+  id          String         @id @default(cuid())
+  amount      Int
+  status      String         @default("PENDING")
+  notes       String?
+  requestedAt DateTime       @default(now())
+  processedAt DateTime?
+  employeeId  String
+  employee    User           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  supervisorId String?
+  supervisor  User?          @relation("SupervisorPayments", fields: [supervisorId], references: [id], onDelete: SetNull)
+  workId      String         @unique
+  work        WorkSubmission @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([status])
+  @@schema("ops")
+}
