@@ -46,7 +46,7 @@ export async function createWorkSubmission(input) {
         status: "UNDER_REVIEW",
         payment: { create: { employeeId, supervisorId: employee.managerId, amount, notes, status: "PENDING" } },
       },
-      include: { payment: true },
+      include: { payment: true, supervisor: { select: { id: true, name: true } } },
     });
   });
 }
@@ -54,7 +54,7 @@ export async function createWorkSubmission(input) {
 export function listWorkSubmissions(employeeId) {
   return prisma.workSubmission.findMany({
     where: employeeId ? { employeeId } : undefined,
-    include: { payment: true },
+    include: { payment: true, supervisor: { select: { id: true, name: true } } },
     orderBy: { submittedAt: "desc" },
   });
 }
@@ -85,7 +85,10 @@ export async function getEarnings(employeeId) {
 export async function getSupervisorWorks(supervisorId) {
   const works = await prisma.workSubmission.findMany({
     where: { supervisorId },
-    include: { employee: true, payment: true },
+    include: {
+      employee: { select: { id: true, name: true, email: true } },
+      payment: true,
+    },
     orderBy: { submittedAt: "desc" },
   });
   return {
@@ -106,17 +109,30 @@ export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
     error.statusCode = 400;
     throw error;
   }
-  const work = await prisma.workSubmission.findFirst({
-    where: { id: workId, supervisorId },
-  });
-  if (!work) {
-    const error = new Error("Work submission was not found in your supervision list.");
-    error.statusCode = 404;
-    throw error;
-  }
-  return prisma.workSubmission.update({
-    where: { id: workId },
-    data: { status, approvedAt: status === "APPROVED" ? new Date() : work.approvedAt },
-    include: { payment: true, employee: true },
+  return prisma.$transaction(async (transaction) => {
+    const work = await transaction.workSubmission.findFirst({
+      where: { id: workId, supervisorId },
+    });
+    if (!work) {
+      const error = new Error("Work submission was not found in your supervision list.");
+      error.statusCode = 404;
+      throw error;
+    }
+    await transaction.workSubmission.update({
+      where: { id: workId },
+      data: { status, approvedAt: status === "APPROVED" ? new Date() : null },
+    });
+    await transaction.paymentRequest.updateMany({
+      where: { workId },
+      data: { status: status === "APPROVED" ? "APPROVED" : status === "REJECTED" ? "REJECTED" : "PENDING" },
+    });
+    return transaction.workSubmission.findUnique({
+      where: { id: workId },
+      include: {
+        payment: true,
+        employee: { select: { id: true, name: true, email: true } },
+        supervisor: { select: { id: true, name: true } },
+      },
+    });
   });
 }
