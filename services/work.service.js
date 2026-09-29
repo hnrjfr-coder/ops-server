@@ -1,34 +1,48 @@
 import { prisma } from "../lib/prisma.js";
 
-const parseAmount = (value) => {
-  const amount = Number(value);
-  return Number.isInteger(amount) && amount > 0 ? amount : null;
-};
-
 export async function createWorkSubmission(input) {
   const employeeId = String(input.employeeId || "").trim();
+  const fundingRequestId = String(input.fundingRequestId || "").trim();
   const title = String(input.title || "").trim();
   const description = String(input.description || "").trim();
   const category = String(input.category || "").trim();
   const completedAt = new Date(input.completedAt);
-  const amount = parseAmount(input.amount);
   const notes = String(input.notes || "").trim() || null;
 
-  if (!employeeId || !title || !description || !category || Number.isNaN(completedAt.getTime()) || !amount) {
-    const error = new Error("employeeId, title, description, category, completedAt, and a positive amount are required.");
+  if (!employeeId || !fundingRequestId || !title || !description || !category || Number.isNaN(completedAt.getTime())) {
+    const error = new Error("fundingRequestId, title, description, category, and completedAt are required.");
     error.statusCode = 400;
     throw error;
   }
 
   return prisma.$transaction(async (transaction) => {
     const employee = await transaction.user.findUnique({ where: { id: employeeId } });
-    if (!employee) {
-      const error = new Error("Employee account was not found.");
+    if (!employee || employee.accountType !== "EMPLOYEE" || employee.status !== "ACTIVE") {
+      const error = new Error("Active employee account was not found.");
       error.statusCode = 404;
       throw error;
     }
-    if (!employee.managerId) {
-      const error = new Error("This employee does not have a supervisor assigned.");
+    const fundingRequest = await transaction.fundingRequest.findFirst({
+      where: { id: fundingRequestId, employeeId, status: "APPROVED", work: null },
+      include: { supervisor: { select: { id: true, status: true, accountType: true } } },
+    });
+    if (!fundingRequest) {
+      const error = new Error("An approved funding request available for work submission was not found.");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (!fundingRequest.supervisor || fundingRequest.supervisor.status !== "ACTIVE" || fundingRequest.supervisor.accountType !== "SUPERVISOR") {
+      const error = new Error("The supervisor assigned to this funding request is not active.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const claimedRequest = await transaction.fundingRequest.updateMany({
+      where: { id: fundingRequestId, employeeId, status: "APPROVED" },
+      data: { status: "UNDER_SUPERVISOR_REVIEW" },
+    });
+    if (claimedRequest.count !== 1) {
+      const error = new Error("Funding request is no longer approved for work submission.");
       error.statusCode = 409;
       throw error;
     }
@@ -36,17 +50,20 @@ export async function createWorkSubmission(input) {
     return transaction.workSubmission.create({
       data: {
         employeeId,
+        fundingRequestId,
         title,
         description,
         category,
         completedAt,
-        amount,
+        amount: fundingRequest.amount,
         notes,
-        supervisorId: employee.managerId,
+        supervisorId: fundingRequest.supervisorId,
         status: "UNDER_REVIEW",
-        payment: { create: { employeeId, supervisorId: employee.managerId, amount, notes, status: "PENDING" } },
       },
-      include: { payment: true, supervisor: { select: { id: true, name: true } } },
+      include: {
+        fundingRequest: true,
+        supervisor: { select: { id: true, name: true } },
+      },
     });
   });
 }
@@ -54,7 +71,11 @@ export async function createWorkSubmission(input) {
 export function listWorkSubmissions(employeeId) {
   return prisma.workSubmission.findMany({
     where: employeeId ? { employeeId } : undefined,
-    include: { payment: true, supervisor: { select: { id: true, name: true } } },
+    include: {
+      payment: true,
+      fundingRequest: true,
+      supervisor: { select: { id: true, name: true } },
+    },
     orderBy: { submittedAt: "desc" },
   });
 }
@@ -88,6 +109,7 @@ export async function getSupervisorWorks(supervisorId) {
     include: {
       employee: { select: { id: true, name: true, email: true } },
       payment: true,
+      fundingRequest: true,
     },
     orderBy: { submittedAt: "desc" },
   });
@@ -95,7 +117,7 @@ export async function getSupervisorWorks(supervisorId) {
     totals: {
       submitted: works.length,
       underReview: works.filter((work) => work.status === "UNDER_REVIEW").length,
-      approved: works.filter((work) => ["APPROVED", "PAID"].includes(work.status)).length,
+      approved: works.filter((work) => ["APPROVED", "COMPLETED", "PAID"].includes(work.status)).length,
       pendingPayouts: works.filter((work) => work.payment?.status === "PENDING").length,
     },
     works,
@@ -119,7 +141,7 @@ export function getSupervisorEmployees(supervisorId) {
 }
 
 export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
-  const allowedStatuses = ["UNDER_REVIEW", "APPROVED", "REJECTED"];
+  const allowedStatuses = ["APPROVED", "REJECTED"];
   if (!allowedStatuses.includes(status)) {
     const error = new Error("Invalid work status.");
     error.statusCode = 400;
@@ -134,18 +156,45 @@ export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
       error.statusCode = 404;
       throw error;
     }
-    await transaction.workSubmission.update({
-      where: { id: workId },
-      data: { status, approvedAt: status === "APPROVED" ? new Date() : null },
+    if (work.status !== "UNDER_REVIEW") {
+      const error = new Error("Only work awaiting supervisor review can be decided.");
+      error.statusCode = 409;
+      throw error;
+    }
+    const workStatus = status === "APPROVED" && work.fundingRequestId ? "COMPLETED" : status;
+    const updatedWork = await transaction.workSubmission.updateMany({
+      where: { id: workId, supervisorId, status: "UNDER_REVIEW" },
+      data: { status: workStatus, approvedAt: status === "APPROVED" ? new Date() : null },
     });
-    await transaction.paymentRequest.updateMany({
-      where: { workId },
-      data: { status: status === "APPROVED" ? "APPROVED" : status === "REJECTED" ? "REJECTED" : "PENDING" },
-    });
+    if (updatedWork.count !== 1) {
+      const error = new Error("Work was already decided by another request.");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (work.fundingRequestId) {
+      const updatedRequest = await transaction.fundingRequest.updateMany({
+        where: { id: work.fundingRequestId, status: "UNDER_SUPERVISOR_REVIEW" },
+        data: {
+          status: status === "APPROVED" ? "COMPLETED" : "SUPERVISOR_REJECTED",
+          completedAt: status === "APPROVED" ? new Date() : null,
+        },
+      });
+      if (updatedRequest.count !== 1) {
+        const error = new Error("Funding request is no longer awaiting supervisor review.");
+        error.statusCode = 409;
+        throw error;
+      }
+    } else {
+      await transaction.paymentRequest.updateMany({
+        where: { workId },
+        data: { status: status === "APPROVED" ? "APPROVED" : "REJECTED" },
+      });
+    }
     return transaction.workSubmission.findUnique({
       where: { id: workId },
       include: {
         payment: true,
+        fundingRequest: true,
         employee: { select: { id: true, name: true, email: true } },
         supervisor: { select: { id: true, name: true } },
       },

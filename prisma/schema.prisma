@@ -1,78 +1,108 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   previewFeatures = ["multiSchema"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
   schemas   = ["ops"]
 }
 
 model User {
-  id            String        @id @default(cuid())
-  email         String        @unique
-  name          String        @default("")
-  passwordHash  String?
-  role          String        @default("EMPLOYEE")
-  status        String        @default("ACTIVE")
-  phone         String?
-  managerId     String?
-  manager       User?         @relation("SupervisorEmployees", fields: [managerId], references: [id], onDelete: SetNull)
-  managedEmployees User[]     @relation("SupervisorEmployees")
-  supervisor    String?
-  accountType   String        @default("EMPLOYEE")
-  department    String?
-  bank          String?
-  accountName   String?
-  accountNumber String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  work          WorkSubmission[]
-  payments      PaymentRequest[]
-  supervisedWork WorkSubmission[] @relation("SupervisorWork")
-  supervisedPayments PaymentRequest[] @relation("SupervisorPayments")
+  id                          String           @id @default(cuid())
+  email                       String           @unique
+  name                        String           @default("")
+  passwordHash                String?
+  role                        String           @default("EMPLOYEE")
+  status                      String           @default("ACTIVE")
+  phone                       String?
+  managerId                   String?
+  manager                     User?            @relation("SupervisorEmployees", fields: [managerId], references: [id], onDelete: SetNull)
+  managedEmployees            User[]           @relation("SupervisorEmployees")
+  funderId                    String?
+  funder                      User?            @relation("FunderSupervisors", fields: [funderId], references: [id], onDelete: SetNull)
+  supervisors                 User[]           @relation("FunderSupervisors")
+  supervisor                  String?
+  accountType                 String           @default("EMPLOYEE")
+  department                  String?
+  bank                        String?
+  accountName                 String?
+  accountNumber               String?
+  createdAt                   DateTime         @default(now())
+  updatedAt                   DateTime         @updatedAt
+  work                        WorkSubmission[]
+  payments                    PaymentRequest[]
+  supervisedWork              WorkSubmission[] @relation("SupervisorWork")
+  supervisedPayments          PaymentRequest[] @relation("SupervisorPayments")
+  fundingRequestsAsEmployee   FundingRequest[] @relation("FundingRequestEmployee")
+  fundingRequestsAsFunder     FundingRequest[] @relation("FundingRequestFunder")
+  fundingRequestsAsSupervisor FundingRequest[] @relation("FundingRequestSupervisor")
 
   @@schema("ops")
 }
 
 model WorkSubmission {
-  id          String          @id @default(cuid())
-  title       String
-  description String
-  category    String
-  completedAt DateTime
-  amount      Int
-  notes       String?
-  status      String          @default("PENDING")
-  submittedAt DateTime        @default(now())
-  approvedAt  DateTime?
-  updatedAt   DateTime        @updatedAt
-  employeeId  String
-  employee    User            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  supervisorId String?
-  supervisor  User?           @relation("SupervisorWork", fields: [supervisorId], references: [id], onDelete: SetNull)
-  payment     PaymentRequest?
+  id               String          @id @default(cuid())
+  title            String
+  description      String
+  category         String
+  completedAt      DateTime
+  amount           Int
+  notes            String?
+  status           String          @default("PENDING")
+  submittedAt      DateTime        @default(now())
+  approvedAt       DateTime?
+  updatedAt        DateTime        @updatedAt
+  employeeId       String
+  employee         User            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  supervisorId     String?
+  supervisor       User?           @relation("SupervisorWork", fields: [supervisorId], references: [id], onDelete: SetNull)
+  fundingRequestId String?         @unique
+  fundingRequest   FundingRequest? @relation(fields: [fundingRequestId], references: [id], onDelete: SetNull)
+  payment          PaymentRequest?
 
   @@index([employeeId])
   @@index([status])
   @@schema("ops")
 }
 
+model FundingRequest {
+  id           String          @id @default(cuid())
+  employeeId   String
+  employee     User            @relation("FundingRequestEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  funderId     String
+  funder       User            @relation("FundingRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
+  supervisorId String
+  supervisor   User            @relation("FundingRequestSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  amount       Int
+  purpose      String
+  status       String          @default("PENDING_FUNDER_APPROVAL")
+  requestedAt  DateTime        @default(now())
+  approvedAt   DateTime?
+  completedAt  DateTime?
+  work         WorkSubmission?
+
+  @@index([employeeId, status, requestedAt])
+  @@index([funderId, status, requestedAt])
+  @@index([supervisorId, status, requestedAt])
+  @@schema("ops")
+}
+
 model PaymentRequest {
-  id          String         @id @default(cuid())
-  amount      Int
-  status      String         @default("PENDING")
-  notes       String?
-  requestedAt DateTime       @default(now())
-  processedAt DateTime?
-  employeeId  String
-  employee    User           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  id           String         @id @default(cuid())
+  amount       Int
+  status       String         @default("PENDING")
+  notes        String?
+  requestedAt  DateTime       @default(now())
+  processedAt  DateTime?
+  employeeId   String
+  employee     User           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   supervisorId String?
-  supervisor  User?          @relation("SupervisorPayments", fields: [supervisorId], references: [id], onDelete: SetNull)
-  workId      String         @unique
-  work        WorkSubmission @relation(fields: [workId], references: [id], onDelete: Cascade)
+  supervisor   User?          @relation("SupervisorPayments", fields: [supervisorId], references: [id], onDelete: SetNull)
+  workId       String         @unique
+  work         WorkSubmission @relation(fields: [workId], references: [id], onDelete: Cascade)
 
   @@index([employeeId])
   @@index([status])
