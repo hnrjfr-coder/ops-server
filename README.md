@@ -38,7 +38,12 @@ created under the dedicated `ops` schema, leaving other schemas untouched.
 - `POST /api/works` with JSON work and payment fields
 - `GET /api/payments`
 - `GET /api/supervisor/works`
+- `GET /api/supervisor/employees`
 - `PATCH /api/supervisor/works/:workId/status`
+
+`GET /api/supervisor/employees` returns employees assigned to the authenticated
+supervisor as an array of safe profile fields: `id`, `name`, `email`, `phone`,
+`department`, `status`, and `createdAt`.
 
 Registration request body:
 

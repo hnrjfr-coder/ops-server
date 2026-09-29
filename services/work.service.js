@@ -102,6 +102,22 @@ export async function getSupervisorWorks(supervisorId) {
   };
 }
 
+export function getSupervisorEmployees(supervisorId) {
+  return prisma.user.findMany({
+    where: { managerId: supervisorId, accountType: "EMPLOYEE" },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      department: true,
+      status: true,
+      createdAt: true,
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
 export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
   const allowedStatuses = ["UNDER_REVIEW", "APPROVED", "REJECTED"];
   if (!allowedStatuses.includes(status)) {

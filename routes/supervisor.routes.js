@@ -1,9 +1,19 @@
 import { Router } from "express";
-import { getSupervisorWorks, updateSupervisedWorkStatus } from "../services/work.service.js";
+import { getSupervisorEmployees, getSupervisorWorks, updateSupervisedWorkStatus } from "../services/work.service.js";
 import { requireAccountType } from "../middleware/auth.middleware.js";
 
 export const supervisorRouter = Router();
 supervisorRouter.use(requireAccountType("SUPERVISOR"));
+
+supervisorRouter.get("/employees", async (request, response, next) => {
+  try {
+    const supervisorId = request.authUser?.id || String(request.query.supervisorId || "");
+    if (!supervisorId) return response.status(400).json({ error: "supervisorId is required." });
+    response.json(await getSupervisorEmployees(supervisorId));
+  } catch (error) {
+    next(error);
+  }
+});
 
 supervisorRouter.get("/works", async (request, response, next) => {
   try {
