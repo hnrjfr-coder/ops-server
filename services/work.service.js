@@ -3,14 +3,13 @@ import { prisma } from "../lib/prisma.js";
 export async function createWorkSubmission(input) {
   const employeeId = String(input.employeeId || "").trim();
   const fundingRequestId = String(input.fundingRequestId || "").trim();
-  const title = String(input.title || "").trim();
-  const description = String(input.description || "").trim();
-  const category = String(input.category || "").trim();
+  const accountName = String(input.accountName || "").trim();
+  const accountCategory = String(input.accountCategory || "").trim().toUpperCase();
   const completedAt = new Date(input.completedAt);
   const notes = String(input.notes || "").trim() || null;
 
-  if (!employeeId || !fundingRequestId || !title || !description || !category || Number.isNaN(completedAt.getTime())) {
-    const error = new Error("fundingRequestId, title, description, category, and completedAt are required.");
+  if (!employeeId || !fundingRequestId || !accountName || !["SUBSCRIPTION", "RENEWAL"].includes(accountCategory) || Number.isNaN(completedAt.getTime())) {
+    const error = new Error("fundingRequestId, accountName, a valid accountCategory, and completedAt are required.");
     error.statusCode = 400;
     throw error;
   }
@@ -51,16 +50,29 @@ export async function createWorkSubmission(input) {
       data: {
         employeeId,
         fundingRequestId,
-        title,
-        description,
-        category,
+        accountName,
+        legacyDescription: "",
+        accountCategory,
         completedAt,
         amount: fundingRequest.amount,
         notes,
         supervisorId: fundingRequest.supervisorId,
         status: "UNDER_REVIEW",
       },
-      include: {
+      select: {
+        id: true,
+        accountName: true,
+        accountCategory: true,
+        completedAt: true,
+        amount: true,
+        notes: true,
+        status: true,
+        submittedAt: true,
+        approvedAt: true,
+        updatedAt: true,
+        employeeId: true,
+        supervisorId: true,
+        fundingRequestId: true,
         fundingRequest: true,
         supervisor: { select: { id: true, name: true } },
       },
@@ -71,7 +83,20 @@ export async function createWorkSubmission(input) {
 export function listWorkSubmissions(employeeId) {
   return prisma.workSubmission.findMany({
     where: employeeId ? { employeeId } : undefined,
-    include: {
+    select: {
+      id: true,
+      accountName: true,
+      accountCategory: true,
+      completedAt: true,
+      amount: true,
+      notes: true,
+      status: true,
+      submittedAt: true,
+      approvedAt: true,
+      updatedAt: true,
+      employeeId: true,
+      supervisorId: true,
+      fundingRequestId: true,
       payment: true,
       fundingRequest: true,
       supervisor: { select: { id: true, name: true } },
@@ -83,7 +108,25 @@ export function listWorkSubmissions(employeeId) {
 export function listPaymentRequests(employeeId) {
   return prisma.paymentRequest.findMany({
     where: employeeId ? { employeeId } : undefined,
-    include: { work: true },
+    include: {
+      work: {
+        select: {
+          id: true,
+          accountName: true,
+          accountCategory: true,
+          completedAt: true,
+          amount: true,
+          notes: true,
+          status: true,
+          submittedAt: true,
+          approvedAt: true,
+          updatedAt: true,
+          employeeId: true,
+          supervisorId: true,
+          fundingRequestId: true,
+        },
+      },
+    },
     orderBy: { requestedAt: "desc" },
   });
 }
@@ -106,7 +149,20 @@ export async function getEarnings(employeeId) {
 export async function getSupervisorWorks(supervisorId) {
   const works = await prisma.workSubmission.findMany({
     where: { supervisorId },
-    include: {
+    select: {
+      id: true,
+      accountName: true,
+      accountCategory: true,
+      completedAt: true,
+      amount: true,
+      notes: true,
+      status: true,
+      submittedAt: true,
+      approvedAt: true,
+      updatedAt: true,
+      employeeId: true,
+      supervisorId: true,
+      fundingRequestId: true,
       employee: { select: { id: true, name: true, email: true } },
       payment: true,
       fundingRequest: true,
@@ -192,7 +248,20 @@ export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
     }
     return transaction.workSubmission.findUnique({
       where: { id: workId },
-      include: {
+      select: {
+        id: true,
+        accountName: true,
+        accountCategory: true,
+        completedAt: true,
+        amount: true,
+        notes: true,
+        status: true,
+        submittedAt: true,
+        approvedAt: true,
+        updatedAt: true,
+        employeeId: true,
+        supervisorId: true,
+        fundingRequestId: true,
         payment: true,
         fundingRequest: true,
         employee: { select: { id: true, name: true, email: true } },

@@ -86,24 +86,27 @@ After approval, the employee submits the work with:
 ```json
 {
 	"fundingRequestId": "approved-request-id",
-	"title": "Office network installation",
-	"description": "Installed and tested the network equipment.",
-	"category": "Installation",
+	"accountName": "Office network subscription",
+	"accountCategory": "SUBSCRIPTION",
 	"completedAt": "2026-09-29T12:00:00.000Z",
 	"notes": "Optional completion notes"
 }
 ```
 
-The request amount and assigned supervisor are derived by the backend. Do not
-send `amount`, `employeeId`, `supervisorId`, or `funderId` from an authenticated
-frontend. A funding request can be linked to only one work submission.
+`accountCategory` must be `SUBSCRIPTION` or `RENEWAL`. The request amount and
+assigned supervisor are derived by the backend. Do not send `amount`,
+`employeeId`, `supervisorId`, or `funderId` from an authenticated frontend. A
+funding request can be linked to only one work submission. Historical work
+records keep their original category values; only new submissions use the two
+current account categories.
 
 Registration options include active `supervisors` and `funders`. Employees
 choose a supervisor; new supervisors choose their funder. Funder accounts are
 provisioned by an administrator and cannot be created through public signup.
-Set Peace and Willis up as `FUNDER` profiles, then create Blessing and Queen as `SUPERVISOR`
-profiles and assign Blessing to Peace and Queen to Willis. Existing employee
-profiles must have their `managerId` updated to Blessing or Queen as appropriate.
+Set Blessing and Queen up as `FUNDER` profiles, then create Peace and Willis as
+`SUPERVISOR` profiles. Assign Peace to Blessing and Willis to Queen. Existing
+employee profiles must have their `managerId` updated to Peace or Willis as
+appropriate.
 
 After backing up the database, apply the additive schema with:
 
@@ -113,9 +116,10 @@ npm run db:push
 ```
 
 Existing `PaymentRequest` and work records are retained as legacy history and
-are not automatically converted into funding requests. Change existing
-Peace/Willis profile account types to `FUNDER` and provision/link Blessing and
-Queen profiles before using the new flow. New requests and work submissions use
+are not automatically converted into funding requests. Set existing
+Blessing/Queen profile account types to `FUNDER` and Peace/Willis to
+`SUPERVISOR`, then link the supervisor profiles to their funders before using
+the new flow. New requests and work submissions use
 the `FundingRequest` model; legacy payment endpoints remain for old records.
 
 ## Frontend restructure prompt
@@ -134,7 +138,7 @@ registration, require a supervisor selected from options.supervisors and
 submit its ID as supervisor. For SUPERVISOR
 registration, require a funder selected from options.funders and submit its ID
 as funder. Hide both selectors for other account types. Funder-to-supervisor
-setup is Peace -> Blessing and Willis -> Queen; the selectable values must
+setup is Blessing -> Peace and Queen -> Willis; the selectable values must
 come from the API, not hard-coded IDs or names.
 
 Employee funding: provide a request form with positive integer amount and a
@@ -153,10 +157,11 @@ PATCH /api/funder/requests/:requestId with { decision: "APPROVED" } or
 successful decision.
 
 Employee work submission: allow submission only for funding requests with
-status APPROVED. POST to /api/works with fundingRequestId, title, description,
-category, completedAt, and optional notes. Do not ask for the amount again;
-it comes from the approved request. Display work and funding status separately
-where useful, and refresh the employee's funding request history after submit.
+status APPROVED. POST to /api/works with fundingRequestId, accountName,
+accountCategory (SUBSCRIPTION or RENEWAL), completedAt, and optional notes.
+Do not ask for a description or amount; the amount comes from the approved
+request. Display work and funding status separately where useful, and refresh
+the employee's funding request history after submit.
 
 Supervisor dashboard: load GET /api/supervisor/employees,
 GET /api/supervisor/funding-summary,

@@ -95,7 +95,7 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
       include: {
         supervisor: { select: { id: true, name: true } },
         funder: { select: { id: true, name: true } },
-        work: { select: { id: true, title: true, status: true, completedAt: true, submittedAt: true } },
+        work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
       },
       orderBy: { requestedAt: "desc" },
       skip,
@@ -119,7 +119,7 @@ export async function listFunderFundingRequests(funderId, input = {}) {
       include: {
         employee: { select: { id: true, name: true, email: true } },
         supervisor: { select: { id: true, name: true } },
-        work: { select: { id: true, title: true, status: true, completedAt: true, submittedAt: true } },
+        work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
       },
       orderBy: { requestedAt: "desc" },
       skip,
@@ -143,7 +143,7 @@ export async function listSupervisorFundingRequests(supervisorId, input = {}) {
       include: {
         employee: { select: { id: true, name: true, email: true } },
         funder: { select: { id: true, name: true } },
-        work: { select: { id: true, title: true, status: true, completedAt: true, submittedAt: true } },
+        work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
       },
       orderBy: { requestedAt: "desc" },
       skip,

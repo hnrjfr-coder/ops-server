@@ -45,9 +45,9 @@ model User {
 
 model WorkSubmission {
   id               String          @id @default(cuid())
-  title            String
-  description      String
-  category         String
+  accountName      String          @map("title")
+  legacyDescription String         @map("description")
+  accountCategory  String          @map("category")
   completedAt      DateTime
   amount           Int
   notes            String?
