@@ -7,6 +7,7 @@ import { supervisorRouter } from "./routes/supervisor.routes.js";
 import { workRouter } from "./routes/work.routes.js";
 import { fundingRouter } from "./routes/funding.routes.js";
 import { funderRouter } from "./routes/funder.routes.js";
+import { payoutRouter } from "./routes/payout.routes.js";
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
@@ -34,6 +35,7 @@ app.use("/api/works", workRouter);
 app.use("/api/funding-requests", fundingRouter);
 app.use("/api/funder", funderRouter);
 app.use("/api/payments", paymentRouter);
+app.use("/api/payouts", payoutRouter);
 app.use("/api/supervisor", supervisorRouter);
 
 app.get("/api/health", (_request, response) => {

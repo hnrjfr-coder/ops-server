@@ -40,6 +40,8 @@ model User {
   updatedAt                   DateTime         @updatedAt
   work                        WorkSubmission[]
   payments                    PaymentRequest[]
+  payoutRequests              PayoutRequest[]  @relation("EmployeePayoutRequests")
+  reviewedPayoutRequests      PayoutRequest[]  @relation("AdminPayoutReviews")
   supervisedWork              WorkSubmission[] @relation("SupervisorWork")
   supervisedPayments          PaymentRequest[] @relation("SupervisorPayments")
   fundingRequestsAsEmployee   FundingRequest[] @relation("FundingRequestEmployee")
@@ -68,9 +70,12 @@ model WorkSubmission {
   fundingRequestId String?         @unique
   fundingRequest   FundingRequest? @relation(fields: [fundingRequestId], references: [id], onDelete: SetNull)
   payment          PaymentRequest?
+  payoutRequestId  String?
+  payoutRequest    PayoutRequest? @relation(fields: [payoutRequestId], references: [id], onDelete: Restrict)
 
   @@index([employeeId])
   @@index([status])
+  @@index([employeeId, status, payoutRequestId])
   @@schema("ops")
 }
 
@@ -114,5 +119,30 @@ model PaymentRequest {
 
   @@index([employeeId])
   @@index([status])
+  @@schema("ops")
+}
+
+model PayoutRequest {
+  id                       String   @id @default(cuid())
+  amount                   Int
+  workCount                Int
+  status                   String   @default("PENDING")
+  requestedAt              DateTime @default(now())
+  processedAt              DateTime?
+  adminNote                String?
+  employeeId               String
+  employee                 User     @relation("EmployeePayoutRequests", fields: [employeeId], references: [id], onDelete: Restrict)
+  employeeName             String
+  employeeEmail            String
+    employeePhone            String?
+  payoutBankName           String
+  payoutAccountHolderName   String
+  payoutAccountNumber       String
+  reviewerId               String?
+  reviewer                 User?    @relation("AdminPayoutReviews", fields: [reviewerId], references: [id], onDelete: SetNull)
+  works                    WorkSubmission[]
+
+  @@index([employeeId, requestedAt])
+  @@index([status, requestedAt])
   @@schema("ops")
 }

@@ -44,6 +44,11 @@ created under the dedicated `ops` schema, leaving other schemas untouched.
 - `POST /api/works` with an approved `fundingRequestId`
 - `GET /api/payments`
 - `GET /api/payments/earnings` (legacy payment history)
+- `GET /api/payouts/summary` (confirmed work and payout eligibility)
+- `GET /api/payouts/requests`
+- `POST /api/payouts/requests`
+- `GET /api/payouts/admin/requests` (admin only)
+- `PATCH /api/payouts/admin/requests/:requestId` (admin only)
 - `GET /api/supervisor/works`
 - `GET /api/supervisor/funding-summary`
 - `GET /api/supervisor/funding-requests?page=1&pageSize=20`
@@ -58,6 +63,23 @@ the requested amount; it does not transfer money. The employee can then submit
 the completed work against that approved request. Supervisor approval marks
 both the work and funding request `COMPLETED`. A funder rejection is
 `FUNDER_REJECTED`; a supervisor rejection is `SUPERVISOR_REJECTED`.
+
+## Employee payout flow
+
+Each supervisor-approved work in `COMPLETED` status earns a fixed payout of
+3,000, independent of the work's funding budget. Employees can request a
+payout only after 20 confirmed works are available, for a server-calculated
+total of 60,000. `POST /api/payouts/requests` takes no work IDs or amount; the
+backend atomically assigns the oldest 20 eligible works to one payout request.
+Assigned works cannot be used in another request, including when an admin
+rejects the payout. Requests snapshot the employee and payout account details.
+
+Admins review requests with `GET /api/payouts/admin/requests` and decide them
+with `PATCH /api/payouts/admin/requests/:requestId` using
+`{ "decision": "APPROVED" }` or `{ "decision": "REJECTED", "adminNote": "..." }`.
+Only authenticated `ADMIN` accounts can review; payout endpoints return 503
+when Supabase authentication is not configured. A decision is final. Apply the
+additive database schema after backing up the database with `npm run db:push`.
 
 Funding request states are `PENDING_FUNDER_APPROVAL`, `APPROVED`,
 `FUNDER_REJECTED`, `UNDER_SUPERVISOR_REVIEW`, `SUPERVISOR_REJECTED`, and
