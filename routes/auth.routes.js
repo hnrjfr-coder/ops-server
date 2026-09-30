@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { getRegistrationOptions, loginUser, registerUser } from "../services/auth.service.js";
+import { completeAccountSetup, getRegistrationOptions, loginUser, registerUser } from "../services/auth.service.js";
+import { requireAccountType } from "../middleware/auth.middleware.js";
 
 export const authRouter = Router();
 
@@ -15,6 +16,16 @@ authRouter.post("/register", async (request, response, next) => {
   try {
     const user = await registerUser(request.body);
     response.status(201).json({ user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+authRouter.put("/account-setup", requireAccountType("EMPLOYEE", "SUPERVISOR", "FUNDER", "ADMIN"), async (request, response, next) => {
+  try {
+    if (!request.authUser) return response.status(401).json({ error: "Authentication required." });
+    const user = await completeAccountSetup(request.authUser.id, request.body);
+    response.json({ user });
   } catch (error) {
     next(error);
   }

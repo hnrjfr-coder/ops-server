@@ -1,8 +1,39 @@
 import { prisma } from "../lib/prisma.js";
 
-const parseAmount = (value) => {
-  const amount = Number(value);
-  return Number.isInteger(amount) && amount > 0 ? amount : null;
+const accountNames = ["SWAGGZ", "METROFLEX", "MONETIZE", "NEILA"];
+const accountCategories = ["SUBSCRIPTION", "RENEWAL"];
+
+const fixedFundingAmounts = {
+  SWAGGZ: { SUBSCRIPTION: 42000, RENEWAL: 49500 },
+  METROFLEX: { SUBSCRIPTION: 42000, RENEWAL: 49500 },
+  MONETIZE: { SUBSCRIPTION: 42000, RENEWAL: 49500 },
+  NEILA: { SUBSCRIPTION: 35000, RENEWAL: 42000 },
+};
+
+const resolveFixedAmount = (accountName, accountCategory) => {
+  const normalizedAccountName = String(accountName || "").trim().toUpperCase();
+  const normalizedAccountCategory = String(accountCategory || "").trim().toUpperCase();
+
+  if (!accountNames.includes(normalizedAccountName)) {
+    const error = new Error("Select a valid account name: SWAGGZ, METROFLEX, MONETIZE, or NEILA.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!accountCategories.includes(normalizedAccountCategory)) {
+    const error = new Error("Select a valid account category: SUBSCRIPTION or RENEWAL.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const amount = fixedFundingAmounts[normalizedAccountName]?.[normalizedAccountCategory];
+  if (!amount) {
+    const error = new Error("No fixed funding amount was defined for that account and billing type.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return { accountName: normalizedAccountName, accountCategory: normalizedAccountCategory, amount };
 };
 
 const parsePagination = (input = {}) => {
@@ -30,13 +61,9 @@ async function fundingSummary(where) {
 }
 
 export async function createFundingRequest(employeeId, input) {
-  const amount = parseAmount(input.amount);
-  const purpose = String(input.purpose || "").trim();
-  if (!amount || !purpose) {
-    const error = new Error("A positive amount and purpose are required.");
-    error.statusCode = 400;
-    throw error;
-  }
+  const selectedAccountName = input.accountName ?? input.account ?? null;
+  const selectedAccountCategory = input.accountCategory ?? input.purpose ?? null;
+  const { accountName, accountCategory, amount } = resolveFixedAmount(selectedAccountName, selectedAccountCategory);
 
   const employee = await prisma.user.findUnique({
     where: { id: employeeId },
@@ -76,8 +103,10 @@ export async function createFundingRequest(employeeId, input) {
       employeeId,
       supervisorId: employee.manager.id,
       funderId: funder.id,
+      accountName,
+      accountCategory,
       amount,
-      purpose,
+      purpose: `${accountName} ${accountCategory}`,
     },
     include: {
       supervisor: { select: { id: true, name: true } },

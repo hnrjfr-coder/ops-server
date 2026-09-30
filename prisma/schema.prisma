@@ -30,6 +30,12 @@ model User {
   bank                        String?
   accountName                 String?
   accountNumber               String?
+  fundingBankName             String?
+  fundingAccountHolderName    String?
+  fundingAccountNumber        String?
+  payoutBankName              String?
+  payoutAccountHolderName     String?
+  payoutAccountNumber         String?
   createdAt                   DateTime         @default(now())
   updatedAt                   DateTime         @updatedAt
   work                        WorkSubmission[]
@@ -69,20 +75,22 @@ model WorkSubmission {
 }
 
 model FundingRequest {
-  id           String          @id @default(cuid())
-  employeeId   String
-  employee     User            @relation("FundingRequestEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
-  funderId     String
-  funder       User            @relation("FundingRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
-  supervisorId String
-  supervisor   User            @relation("FundingRequestSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
-  amount       Int
-  purpose      String
-  status       String          @default("PENDING_FUNDER_APPROVAL")
-  requestedAt  DateTime        @default(now())
-  approvedAt   DateTime?
-  completedAt  DateTime?
-  work         WorkSubmission?
+  id              String          @id @default(cuid())
+  employeeId      String
+  employee        User            @relation("FundingRequestEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  funderId        String
+  funder          User            @relation("FundingRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
+  supervisorId    String
+  supervisor      User            @relation("FundingRequestSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  accountName     String?
+  accountCategory String?
+  amount          Int
+  purpose         String?
+  status          String          @default("PENDING_FUNDER_APPROVAL")
+  requestedAt     DateTime        @default(now())
+  approvedAt      DateTime?
+  completedAt     DateTime?
+  work            WorkSubmission?
 
   @@index([employeeId, status, requestedAt])
   @@index([funderId, status, requestedAt])

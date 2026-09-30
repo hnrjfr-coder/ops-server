@@ -8,6 +8,25 @@ const publicUser = (user) => {
   return safeUser;
 };
 
+const accountSetupFields = [
+  "fundingBankName",
+  "fundingAccountHolderName",
+  "fundingAccountNumber",
+  "payoutBankName",
+  "payoutAccountHolderName",
+  "payoutAccountNumber",
+];
+
+const isValidAccountSetupValue = (field, value) => {
+  const text = String(value ?? "").trim();
+  if (field.endsWith("AccountNumber")) return /^\d{10}$/.test(text);
+  if (field.endsWith("AccountHolderName")) return /^[\p{L}][\p{L}\s.'-]{1,99}$/u.test(text);
+  return /^[\p{L}\p{N}][\p{L}\p{N}\s&.'()-]{1,99}$/u.test(text);
+};
+
+const accountSetupInput = (input) =>
+  Object.fromEntries(accountSetupFields.map((field) => [field, String(input[field] ?? "").trim()]));
+
 export async function registerUser(input) {
   const name = String(input.name || "").trim();
   const phone = String(input.phone || "").trim();
@@ -16,6 +35,7 @@ export async function registerUser(input) {
   const supervisor = String(input.supervisor || "").trim();
   const funder = String(input.funder || "").trim();
   const accountType = String(input.accountType || "").trim().toUpperCase();
+  const accountSetup = accountSetupInput(input);
   const registrationOptions = await getRegistrationOptions();
 
   if (!name || !phone || !email || !password || !accountType) {
@@ -33,9 +53,15 @@ export async function registerUser(input) {
     error.statusCode = 400;
     throw error;
   }
-  if (accountType === "FUNDER") {
-    const error = new Error("Funder accounts must be provisioned by an administrator.");
+  if (accountType === "FUNDER" || accountType === "ADMIN") {
+    const error = new Error("This account type must be provisioned by an administrator.");
     error.statusCode = 403;
+    throw error;
+  }
+  const invalidSetupField = accountSetupFields.find((field) => !isValidAccountSetupValue(field, accountSetup[field]));
+  if (invalidSetupField) {
+    const error = new Error("Enter valid bank, account holder, and 10-digit account details for both funding and payout.");
+    error.statusCode = 400;
     throw error;
   }
   if (accountType === "EMPLOYEE" && !isValidRegistrationOption(registrationOptions.supervisors, supervisor)) {
@@ -85,6 +111,7 @@ export async function registerUser(input) {
         supervisor: accountType === "EMPLOYEE" ? supervisor : null,
         funder: accountType === "SUPERVISOR" ? funder : null,
         accountType,
+        ...accountSetup,
       },
     });
     if (error) {
@@ -107,6 +134,7 @@ export async function registerUser(input) {
         funderId: accountType === "SUPERVISOR" ? funder : null,
         supervisor: accountType === "EMPLOYEE" ? supervisor : null,
         accountType,
+        ...accountSetup,
       },
     });
     return publicUser(user);
@@ -114,6 +142,33 @@ export async function registerUser(input) {
     if (supabaseAdmin && supabaseUser) await supabaseAdmin.auth.admin.deleteUser(supabaseUser.id);
     throw error;
   }
+}
+
+export async function completeAccountSetup(userId, input) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    const error = new Error("Account not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const submitted = accountSetupInput(input);
+  const updates = {};
+  for (const field of accountSetupFields) {
+    const existing = String(user[field] ?? "").trim();
+    if (isValidAccountSetupValue(field, existing)) continue;
+    if (!isValidAccountSetupValue(field, submitted[field])) {
+      const error = new Error("Complete each missing bank, account holder, and 10-digit account detail.");
+      error.statusCode = 400;
+      throw error;
+    }
+    updates[field] = submitted[field];
+  }
+
+  const updatedUser = Object.keys(updates).length
+    ? await prisma.user.update({ where: { id: userId }, data: updates })
+    : user;
+  return publicUser(updatedUser);
 }
 
 export async function loginUser(input) {

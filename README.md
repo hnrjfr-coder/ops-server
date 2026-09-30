@@ -66,14 +66,19 @@ request list endpoints return `{ items, pagination }`, default to 20 records,
 and cap `pageSize` at 50. Summary endpoints group counts and amounts by status
 without returning all request rows.
 
-Create an employee funding request with:
+Create an employee funding request with a fixed package selection:
 
 ```json
 {
-	"amount": 25000,
-	"purpose": "Materials and labor for the office network installation"
+	"accountName": "SWAGGZ",
+	"accountCategory": "SUBSCRIPTION"
 }
 ```
+
+The backend resolves the amount automatically from the package table. For
+`SWAGGZ`, `METROFLEX`, and `MONETIZE`, `SUBSCRIPTION` is `42000` and
+`RENEWAL` is `49500`. For `NEILA`, `SUBSCRIPTION` is `35000` and `RENEWAL`
+is `42000`.
 
 A funder approves or rejects it with `PATCH /api/funder/requests/:requestId`:
 
@@ -141,12 +146,7 @@ as funder. Hide both selectors for other account types. Funder-to-supervisor
 setup is Blessing -> Peace and Queen -> Willis; the selectable values must
 come from the API, not hard-coded IDs or names.
 
-Employee funding: provide a request form with positive integer amount and a
-clear purpose. POST { amount, purpose } to /api/funding-requests. Show request
-history from GET /api/funding-requests?page=1&pageSize=20 and status totals
-from GET /api/funding-requests/summary. Support pagination using the returned
-pagination fields. Explain in the UI that funder approval reserves funds but
-does not itself transfer money.
+Employee funding: show a fixed-price selector with accountName and accountCategory. The accountName options are SWAGGZ, METROFLEX, MONETIZE, and NEILA. The accountCategory options are SUBSCRIPTION and RENEWAL. Use the fixed lookup table: SWAGGZ/METROFLEX/MONETIZE => SUBSCRIPTION 42000, RENEWAL 49500; NEILA => SUBSCRIPTION 35000, RENEWAL 42000. POST { accountName, accountCategory } to /api/funding-requests. Do not let the user type an amount or purpose. Show request history from GET /api/funding-requests?page=1&pageSize=20 and status totals from GET /api/funding-requests/summary. Support pagination using the returned pagination fields. Explain in the UI that funder approval reserves funds but does not itself transfer money.
 
 Funder dashboard: load GET /api/funder/summary and paginated
 GET /api/funder/requests?page=1&pageSize=20. Show the requesting employee,
@@ -160,8 +160,9 @@ Employee work submission: allow submission only for funding requests with
 status APPROVED. POST to /api/works with fundingRequestId, accountName,
 accountCategory (SUBSCRIPTION or RENEWAL), completedAt, and optional notes.
 Do not ask for a description or amount; the amount comes from the approved
-request. Display work and funding status separately where useful, and refresh
-the employee's funding request history after submit.
+request and the selected fixed-price funding package. Display work and funding
+status separately where useful, and refresh the employee's funding request
+history after submit.
 
 Supervisor dashboard: load GET /api/supervisor/employees,
 GET /api/supervisor/funding-summary,
@@ -183,6 +184,14 @@ reserved amount, not proof that money was transferred.
 supervisor as an array of safe profile fields: `id`, `name`, `email`, `phone`,
 `department`, `status`, and `createdAt`.
 
+Account setup provision: on first signup the user may optionally provide
+funding and payout account details. When those fields are provided, the values
+must include the bank name, the account holder name, and the account number.
+The frontend should treat the bank/account setup as locked after first save and
+must not allow users to edit it casually later. For users who already exist
+without these details, the frontend should show a required onboarding prompt to
+collect them before the user can continue with normal dashboard actions.
+
 Registration request body:
 
 ```json
@@ -192,7 +201,13 @@ Registration request body:
 	"email": "employee@ops.ng",
 	"password": "at-least-8-characters",
 	"supervisor": "active-supervisor-id",
-	"accountType": "EMPLOYEE"
+	"accountType": "EMPLOYEE",
+	"fundingBankName": "Access Bank",
+	"fundingAccountHolderName": "Jane Doe",
+	"fundingAccountNumber": "0123456789",
+	"payoutBankName": "Zenith Bank",
+	"payoutAccountHolderName": "Jane Doe",
+	"payoutAccountNumber": "1234567890"
 }
 ```
 
