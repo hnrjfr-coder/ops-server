@@ -3,13 +3,10 @@ import { prisma } from "../lib/prisma.js";
 export async function createWorkSubmission(input) {
   const employeeId = String(input.employeeId || "").trim();
   const fundingRequestId = String(input.fundingRequestId || "").trim();
-  const accountName = String(input.accountName || "").trim();
-  const accountCategory = String(input.accountCategory || "").trim().toUpperCase();
-  const completedAt = new Date(input.completedAt);
   const notes = String(input.notes || "").trim() || null;
 
-  if (!employeeId || !fundingRequestId || !accountName || !["SUBSCRIPTION", "RENEWAL"].includes(accountCategory) || Number.isNaN(completedAt.getTime())) {
-    const error = new Error("fundingRequestId, accountName, a valid accountCategory, and completedAt are required.");
+  if (!employeeId || !fundingRequestId) {
+    const error = new Error("fundingRequestId is required.");
     error.statusCode = 400;
     throw error;
   }
@@ -27,6 +24,13 @@ export async function createWorkSubmission(input) {
     });
     if (!fundingRequest) {
       const error = new Error("An approved funding request available for work submission was not found.");
+      error.statusCode = 409;
+      throw error;
+    }
+    const accountName = String(fundingRequest.accountName || "").trim();
+    const accountCategory = String(fundingRequest.accountCategory || "").trim().toUpperCase();
+    if (!accountName || !["SUBSCRIPTION", "RENEWAL"].includes(accountCategory)) {
+      const error = new Error("The approved funding request has incomplete package details.");
       error.statusCode = 409;
       throw error;
     }
@@ -53,7 +57,7 @@ export async function createWorkSubmission(input) {
         accountName,
         legacyDescription: "",
         accountCategory,
-        completedAt,
+        completedAt: new Date(),
         amount: fundingRequest.amount,
         notes,
         supervisorId: fundingRequest.supervisorId,

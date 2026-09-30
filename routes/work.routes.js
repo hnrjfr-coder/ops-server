@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { createWorkSubmission, listWorkSubmissions } from "../services/work.service.js";
-import { requireAccountType } from "../middleware/auth.middleware.js";
+import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
 
 export const workRouter = Router();
-workRouter.use(requireAccountType("EMPLOYEE"));
+workRouter.use(requireAuthenticatedAccountType("EMPLOYEE"));
 
 workRouter.get("/", async (request, response, next) => {
   try {
-    const works = await listWorkSubmissions(request.authUser?.id || (request.query.employeeId ? String(request.query.employeeId) : undefined));
+    const works = await listWorkSubmissions(request.authUser.id);
     response.json(works);
   } catch (error) {
     next(error);
@@ -16,7 +16,7 @@ workRouter.get("/", async (request, response, next) => {
 
 workRouter.post("/", async (request, response, next) => {
   try {
-    const work = await createWorkSubmission({ ...request.body, employeeId: request.authUser?.id || request.body.employeeId });
+    const work = await createWorkSubmission({ ...request.body, employeeId: request.authUser.id });
     response.status(201).json(work);
   } catch (error) {
     next(error);
