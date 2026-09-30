@@ -40,6 +40,7 @@ created under the dedicated `ops` schema, leaving other schemas untouched.
 - `GET /api/funder/summary`
 - `GET /api/funder/requests?page=1&pageSize=20`
 - `PATCH /api/funder/requests/:requestId`
+- `GET /api/admin/analytics?period=day|month|year&from=YYYY-MM-DD&to=YYYY-MM-DD`
 - `GET /api/works`
 - `POST /api/works` with an approved `fundingRequestId`
 - `GET /api/payments`
@@ -77,9 +78,26 @@ rejects the payout. Requests snapshot the employee and payout account details.
 Admins review requests with `GET /api/payouts/admin/requests` and decide them
 with `PATCH /api/payouts/admin/requests/:requestId` using
 `{ "decision": "APPROVED" }` or `{ "decision": "REJECTED", "adminNote": "..." }`.
-Only authenticated `ADMIN` accounts can review; payout endpoints return 503
-when Supabase authentication is not configured. A decision is final. Apply the
-additive database schema after backing up the database with `npm run db:push`.
+An admin approval records the payout as `PAID` and means the transfer is
+complete; rejection records `REJECTED`. Only authenticated `ADMIN` accounts
+can review; payout endpoints return 503 when Supabase authentication is not
+configured. A decision is final. Apply the additive database schema after
+backing up the database with `npm run db:push`.
+
+## Admin analytics
+
+`GET /api/admin/analytics` returns aggregated dashboard metrics without loading
+underlying user or transaction rows. `period` accepts `day`, `month`, or
+`year`; optional `from` and `to` dates are inclusive UTC calendar dates and
+must be provided together. Defaults are the last 30 days, 12 months, or 5
+years. The service caps ranges at 366 daily, 60 monthly, or 20 yearly buckets.
+The response includes current employee and pending-request counts, period
+totals, and a zero-filled time series for transfer-confirmed funding,
+payout-request decisions, completed work, and new employees. Funding transfers
+and payouts recorded as `PAID` after admin approval are reported separately.
+The approval is the system's confirmation that the payout was transferred.
+Indexes support the date and status filters; apply
+the additive Prisma schema with `npm run db:push` after review.
 
 Funding request states are `PENDING_FUNDER_APPROVAL`, `APPROVED`,
 `FUNDER_REJECTED`, `UNDER_SUPERVISOR_REVIEW`, `SUPERVISOR_REJECTED`, and

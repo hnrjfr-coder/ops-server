@@ -48,6 +48,8 @@ model User {
   fundingRequestsAsFunder     FundingRequest[] @relation("FundingRequestFunder")
   fundingRequestsAsSupervisor FundingRequest[] @relation("FundingRequestSupervisor")
 
+  @@index([accountType, status])
+  @@index([accountType, createdAt])
   @@schema("ops")
 }
 
@@ -76,6 +78,7 @@ model WorkSubmission {
   @@index([employeeId])
   @@index([status])
   @@index([employeeId, status, payoutRequestId])
+  @@index([approvedAt])
   @@schema("ops")
 }
 
@@ -100,6 +103,8 @@ model FundingRequest {
   @@index([employeeId, status, requestedAt])
   @@index([funderId, status, requestedAt])
   @@index([supervisorId, status, requestedAt])
+  @@index([status, requestedAt])
+  @@index([approvedAt])
   @@schema("ops")
 }
 
@@ -144,5 +149,7 @@ model PayoutRequest {
 
   @@index([employeeId, requestedAt])
   @@index([status, requestedAt])
+  @@index([requestedAt])
+  @@index([processedAt])
   @@schema("ops")
 }

@@ -192,7 +192,6 @@ export function getSupervisorEmployees(supervisorId) {
       name: true,
       email: true,
       phone: true,
-      department: true,
       status: true,
       createdAt: true,
     },

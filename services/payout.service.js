@@ -183,7 +183,7 @@ export async function decidePayoutRequest(requestId, reviewerId, decision, admin
     const updated = await transaction.payoutRequest.updateMany({
       where: { id: requestId, status: "PENDING" },
       data: {
-        status: decision,
+        status: decision === "APPROVED" ? "PAID" : "REJECTED",
         reviewerId,
         processedAt: new Date(),
         adminNote: String(adminNote || "").trim().slice(0, 1000) || null,
