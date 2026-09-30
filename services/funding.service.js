@@ -146,7 +146,14 @@ export async function listFunderFundingRequests(funderId, input = {}) {
     prisma.fundingRequest.findMany({
       where,
       include: {
-        employee: { select: { id: true, name: true, email: true } },
+        employee: { select: {
+          id: true,
+          name: true,
+          email: true,
+          fundingBankName: true,
+          fundingAccountHolderName: true,
+          fundingAccountNumber: true,
+        } },
         supervisor: { select: { id: true, name: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
       },
@@ -156,7 +163,18 @@ export async function listFunderFundingRequests(funderId, input = {}) {
     }),
     prisma.fundingRequest.count({ where }),
   ]);
-  return paginatedResult(items, total, page, pageSize);
+  const funderItems = items.map((request) => {
+    if (request.status === "PENDING_FUNDER_APPROVAL") return request;
+    return {
+      ...request,
+      employee: {
+        id: request.employee.id,
+        name: request.employee.name,
+        email: request.employee.email,
+      },
+    };
+  });
+  return paginatedResult(funderItems, total, page, pageSize);
 }
 
 export async function getFunderFundingSummary(funderId) {
@@ -187,13 +205,44 @@ export async function getSupervisorFundingSummary(supervisorId) {
   return fundingSummary({ supervisorId });
 }
 
-export async function decideFundingRequest(funderId, requestId, decision) {
+export async function decideFundingRequest(funderId, requestId, decision, transferConfirmed = false) {
   if (!["APPROVED", "REJECTED"].includes(decision)) {
     const error = new Error("Decision must be APPROVED or REJECTED.");
     error.statusCode = 400;
     throw error;
   }
+  if (decision === "APPROVED" && transferConfirmed !== true) {
+    const error = new Error("Confirm that funding was transferred before approving this request.");
+    error.statusCode = 400;
+    throw error;
+  }
   return prisma.$transaction(async (transaction) => {
+    if (decision === "APPROVED") {
+      const pendingRequest = await transaction.fundingRequest.findFirst({
+        where: { id: requestId, funderId, status: "PENDING_FUNDER_APPROVAL" },
+        select: {
+          employee: {
+            select: {
+              fundingBankName: true,
+              fundingAccountHolderName: true,
+              fundingAccountNumber: true,
+            },
+          },
+        },
+      });
+      const employeeAccount = pendingRequest?.employee;
+      const accountIsComplete = Boolean(
+        employeeAccount?.fundingBankName?.trim() &&
+        employeeAccount?.fundingAccountHolderName?.trim() &&
+        /^\d{10}$/.test(employeeAccount?.fundingAccountNumber?.trim() || ""),
+      );
+      if (pendingRequest && !accountIsComplete) {
+        const error = new Error("The employee funding account is incomplete. Update the account details before approval.");
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+
     const updated = await transaction.fundingRequest.updateMany({
       where: { id: requestId, funderId, status: "PENDING_FUNDER_APPROVAL" },
       data: {

@@ -35,7 +35,9 @@ export async function registerUser(input) {
   const supervisor = String(input.supervisor || "").trim();
   const funder = String(input.funder || "").trim();
   const accountType = String(input.accountType || "").trim().toUpperCase();
-  const accountSetup = accountSetupInput(input);
+  const accountSetup = accountType === "EMPLOYEE"
+    ? accountSetupInput(input)
+    : Object.fromEntries(accountSetupFields.map((field) => [field, null]));
   const registrationOptions = await getRegistrationOptions();
 
   if (!name || !phone || !email || !password || !accountType) {
@@ -58,7 +60,9 @@ export async function registerUser(input) {
     error.statusCode = 403;
     throw error;
   }
-  const invalidSetupField = accountSetupFields.find((field) => !isValidAccountSetupValue(field, accountSetup[field]));
+  const invalidSetupField = accountType === "EMPLOYEE"
+    ? accountSetupFields.find((field) => !isValidAccountSetupValue(field, accountSetup[field]))
+    : null;
   if (invalidSetupField) {
     const error = new Error("Enter valid bank, account holder, and 10-digit account details for both funding and payout.");
     error.statusCode = 400;

@@ -29,6 +29,7 @@ funderRouter.patch("/requests/:requestId", async (request, response, next) => {
       request.authUser?.id || String(request.body.funderId || ""),
       request.params.requestId,
       String(request.body.decision || "").toUpperCase(),
+      request.body.transferConfirmed === true,
     );
     response.json(result);
   } catch (error) {
