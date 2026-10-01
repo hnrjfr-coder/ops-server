@@ -100,15 +100,16 @@ export async function createFundingRequest(employeeId, input) {
     throw error;
   }
 
-  const unresolvedSubmittedWorkCount = await transaction.workSubmission.count({
-    where: {
-      employeeId,
-      status: { not: "COMPLETED" },
-      fundingRequestId: { not: null },
-    },
+  const recentFundingRequests = await transaction.fundingRequest.findMany({
+    where: { employeeId },
+    orderBy: { requestedAt: "desc" },
+    select: { status: true },
   });
-  if (unresolvedSubmittedWorkCount >= MAX_UNRESOLVED_SUBMITTED_WORKS) {
-    const error = new Error(`You have ${MAX_UNRESOLVED_SUBMITTED_WORKS} submitted funding requests awaiting supervisor approval. All submitted work must be approved before requesting more funding.`);
+  const consecutiveFundingRequestCount = recentFundingRequests.findIndex((request) => request.status === "COMPLETED") === -1
+    ? recentFundingRequests.length
+    : recentFundingRequests.findIndex((request) => request.status === "COMPLETED");
+  if (consecutiveFundingRequestCount >= MAX_UNRESOLVED_SUBMITTED_WORKS) {
+    const error = new Error(`You have ${consecutiveFundingRequestCount} consecutive funding requests without a completed supervisor-approved work cycle. Complete and receive supervisor approval for the submitted work before requesting more funding.`);
     error.statusCode = 409;
     throw error;
   }
@@ -153,14 +154,18 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
 
 export async function getEmployeeFundingSummary(employeeId) {
   const summary = await fundingSummary({ employeeId });
-  const unresolvedSubmittedWorkCount = await prisma.workSubmission.count({
-    where: { employeeId, status: { not: "COMPLETED" }, fundingRequestId: { not: null } },
+  const recentFundingRequests = await prisma.fundingRequest.findMany({
+    where: { employeeId },
+    orderBy: { requestedAt: "desc" },
+    select: { status: true },
   });
+  const completedIndex = recentFundingRequests.findIndex((request) => request.status === "COMPLETED");
+  const consecutiveFundingRequestCount = completedIndex === -1 ? recentFundingRequests.length : completedIndex;
   return {
     ...summary,
     maxUnresolvedSubmittedWorkRequests: MAX_UNRESOLVED_SUBMITTED_WORKS,
-    unresolvedSubmittedWorkRequestCount: unresolvedSubmittedWorkCount,
-    fundingRequestBlocked: unresolvedSubmittedWorkCount >= MAX_UNRESOLVED_SUBMITTED_WORKS,
+    consecutiveFundingRequestCount,
+    fundingRequestBlocked: consecutiveFundingRequestCount >= MAX_UNRESOLVED_SUBMITTED_WORKS,
   };
 }
 
