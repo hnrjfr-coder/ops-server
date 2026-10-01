@@ -1,7 +1,13 @@
 import { prisma } from "../lib/prisma.js";
 
 const WORKS_PER_PAYOUT = 20;
-const PAYOUT_PER_WORK = 3000;
+export const PAYOUT_PER_WORK = 3000;
+
+export function sumPaidPayoutAmounts(payoutRequests) {
+  return payoutRequests
+    .filter((payout) => payout.status === "PAID")
+    .reduce((total, payout) => total + Number(payout.amount || 0), 0);
+}
 
 function createError(message, statusCode) {
   const error = new Error(message);
@@ -128,6 +134,7 @@ export async function getEmployeePayoutSummary(employeeId) {
     confirmedWorkCount,
     eligibleWorkCount,
     eligibleAmount: eligibleWorkCount * PAYOUT_PER_WORK,
+    totalReceived: sumPaidPayoutAmounts(payoutRequests),
     canRequestPayout: eligibleWorkCount >= WORKS_PER_PAYOUT,
     requestedWorkCount: payoutRequests.reduce((sum, payout) => sum + payout.workCount, 0),
     payoutRequests,

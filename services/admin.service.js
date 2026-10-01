@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { PAYOUT_PER_WORK } from "./payout.service.js";
 
 const employeeWhere = { accountType: "EMPLOYEE" };
 
@@ -106,7 +107,7 @@ export async function getAdminStaffDetails(staffId) {
   }
 
   const [completedWorkCount, awaitingReviewWorkCount] = await Promise.all([
-    prisma.workSubmission.count({ where: { employeeId: staffId, status: "COMPLETED" } }),
+    prisma.workSubmission.count({ where: { employeeId: staffId, status: "COMPLETED", approvedAt: { not: null } } }),
     prisma.workSubmission.count({ where: { employeeId: staffId, status: "UNDER_REVIEW" } }),
   ]);
 
@@ -115,6 +116,7 @@ export async function getAdminStaffDetails(staffId) {
     workSummary: {
       total: employee._count.work,
       completed: completedWorkCount,
+      confirmedEarnings: completedWorkCount * PAYOUT_PER_WORK,
       awaitingReview: awaitingReviewWorkCount,
     },
     payoutRequestCount: employee._count.payoutRequests,

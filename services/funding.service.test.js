@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getFunderFundingDateRange, requestsSinceCompletedBatch } from "./funding.service.js";
+import {
+  getFunderFundingDateRange,
+  hasUnsubmittedApprovedFundingRequest,
+  requestsSinceCompletedBatch,
+} from "./funding.service.js";
+import { sumPaidPayoutAmounts } from "./payout.service.js";
 
 const statuses = (...values) => values.map((status) => ({ status }));
 
@@ -45,6 +50,37 @@ test("mixed request history preserves the active cycle count", () => {
   );
 });
 
+test("approved funding blocks another request until work is submitted", () => {
+  assert.equal(hasUnsubmittedApprovedFundingRequest([{ status: "APPROVED", work: null }]), true);
+  assert.equal(hasUnsubmittedApprovedFundingRequest([{ status: "APPROVED" }]), true);
+});
+
+test("submitted work unlocks the next request before supervisor approval", () => {
+  assert.equal(
+    hasUnsubmittedApprovedFundingRequest([
+      { status: "UNDER_SUPERVISOR_REVIEW", work: { id: "work-1" } },
+    ]),
+    false,
+  );
+  assert.equal(
+    hasUnsubmittedApprovedFundingRequest([
+      { status: "APPROVED", work: { id: "work-1" } },
+    ]),
+    false,
+  );
+});
+
+test("pending or rejected funding does not trigger the submission gate", () => {
+  assert.equal(
+    hasUnsubmittedApprovedFundingRequest([
+      { status: "PENDING_FUNDER_APPROVAL", work: null },
+      { status: "FUNDER_REJECTED", work: null },
+      { status: "SUPERVISOR_REJECTED", work: null },
+    ]),
+    false,
+  );
+});
+
 test("funder date ranges use inclusive Africa/Lagos calendar days", () => {
   const range = getFunderFundingDateRange({ from: "2026-10-01", to: "2026-10-01" });
   assert.equal(range.start.toISOString(), "2026-09-30T23:00:00.000Z");
@@ -55,4 +91,13 @@ test("funder date ranges reject invalid or incomplete dates", () => {
   assert.throws(() => getFunderFundingDateRange({ from: "2026-10-01" }), { statusCode: 400 });
   assert.throws(() => getFunderFundingDateRange({ from: "2026-02-30", to: "2026-03-01" }), { statusCode: 400 });
   assert.throws(() => getFunderFundingDateRange({ from: "2026-10-02", to: "2026-10-01" }), { statusCode: 400 });
+});
+
+test("total received includes paid payouts only", () => {
+  assert.equal(sumPaidPayoutAmounts([
+    { status: "PAID", amount: 60000 },
+    { status: "PENDING", amount: 30000 },
+    { status: "REJECTED", amount: 12000 },
+    { status: "APPROVED", amount: 15000 },
+  ]), 60000);
 });

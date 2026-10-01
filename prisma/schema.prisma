@@ -96,6 +96,7 @@ model FundingRequest {
   purpose         String?
   status          String          @default("PENDING_FUNDER_APPROVAL")
   requestedAt     DateTime        @default(now())
+  lastStatusChangedAt DateTime?
   approvedAt      DateTime?
   completedAt     DateTime?
   work            WorkSubmission?

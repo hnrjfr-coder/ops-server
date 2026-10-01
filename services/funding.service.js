@@ -22,6 +22,9 @@ export const requestsSinceCompletedBatch = (requests) => {
   return cycleRequests.length;
 };
 
+export const hasUnsubmittedApprovedFundingRequest = (requests) =>
+  requests.some((request) => request.status === "APPROVED" && !request.work);
+
 const resolveFixedAmount = (accountName, accountCategory) => {
   const normalizedAccountName = String(accountName || "").trim().toUpperCase();
   const normalizedAccountCategory = String(accountCategory || "").trim().toUpperCase();
@@ -144,8 +147,13 @@ export async function createFundingRequest(employeeId, input) {
   const fundingCycleRequests = await transaction.fundingRequest.findMany({
     where: { employeeId },
     orderBy: { requestedAt: "desc" },
-    select: { status: true },
+    select: { status: true, work: { select: { id: true } } },
   });
+  if (hasUnsubmittedApprovedFundingRequest(fundingCycleRequests)) {
+    const error = new Error("Submit work for your approved funding request before requesting more funding.");
+    error.statusCode = 409;
+    throw error;
+  }
   const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
   if (fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE) {
     const error = new Error(`You have reached the limit of ${MAX_FUNDING_REQUESTS_PER_CYCLE} active funding requests in this cycle. Complete and receive supervisor approval for all four requests before requesting more funding. Funder- or supervisor-rejected requests release their slot.`);
@@ -153,6 +161,7 @@ export async function createFundingRequest(employeeId, input) {
     throw error;
   }
 
+  const requestedAt = new Date();
   return transaction.fundingRequest.create({
     data: {
       employeeId,
@@ -162,6 +171,8 @@ export async function createFundingRequest(employeeId, input) {
       accountCategory,
       amount,
       purpose: `${accountName} ${accountCategory}`,
+      requestedAt,
+      lastStatusChangedAt: requestedAt,
     },
     include: {
       supervisor: { select: { id: true, name: true } },
@@ -180,7 +191,7 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
       include: {
         supervisor: { select: { id: true, name: true } },
         funder: { select: { id: true, name: true } },
-        work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
+        work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true, approvedAt: true, updatedAt: true } },
       },
       orderBy: { requestedAt: "desc" },
       skip,
@@ -196,14 +207,16 @@ export async function getEmployeeFundingSummary(employeeId) {
   const fundingCycleRequests = await prisma.fundingRequest.findMany({
     where: { employeeId },
     orderBy: { requestedAt: "desc" },
-    select: { status: true },
+    select: { status: true, work: { select: { id: true } } },
   });
   const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
+  const fundingRequestAwaitingWork = hasUnsubmittedApprovedFundingRequest(fundingCycleRequests);
   return {
     ...summary,
     maxFundingRequestsPerCycle: MAX_FUNDING_REQUESTS_PER_CYCLE,
     fundingCycleRequestCount,
-    fundingRequestBlocked: fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE,
+    fundingRequestAwaitingWork,
+    fundingRequestBlocked: fundingRequestAwaitingWork || fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE,
   };
 }
 
@@ -311,6 +324,7 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
     error.statusCode = 400;
     throw error;
   }
+  const decidedAt = new Date();
   return prisma.$transaction(async (transaction) => {
     if (decision === "APPROVED") {
       const pendingRequest = await transaction.fundingRequest.findFirst({
@@ -342,7 +356,8 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
       where: { id: requestId, funderId, status: "PENDING_FUNDER_APPROVAL" },
       data: {
         status: decision === "APPROVED" ? "APPROVED" : "FUNDER_REJECTED",
-        approvedAt: decision === "APPROVED" ? new Date() : null,
+        approvedAt: decision === "APPROVED" ? decidedAt : null,
+        lastStatusChangedAt: decidedAt,
       },
     });
     if (updated.count !== 1) {

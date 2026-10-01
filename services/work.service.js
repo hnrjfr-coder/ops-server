@@ -40,9 +40,10 @@ export async function createWorkSubmission(input) {
       throw error;
     }
 
+    const submittedAt = new Date();
     const claimedRequest = await transaction.fundingRequest.updateMany({
       where: { id: fundingRequestId, employeeId, status: "APPROVED" },
-      data: { status: "UNDER_SUPERVISOR_REVIEW" },
+      data: { status: "UNDER_SUPERVISOR_REVIEW", lastStatusChangedAt: submittedAt },
     });
     if (claimedRequest.count !== 1) {
       const error = new Error("Funding request is no longer approved for work submission.");
@@ -57,7 +58,8 @@ export async function createWorkSubmission(input) {
         accountName,
         legacyDescription: "",
         accountCategory,
-        completedAt: new Date(),
+        completedAt: submittedAt,
+        submittedAt,
         amount: fundingRequest.amount,
         notes,
         supervisorId: fundingRequest.supervisorId,
@@ -207,6 +209,7 @@ export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
     error.statusCode = 400;
     throw error;
   }
+  const decidedAt = new Date();
   return prisma.$transaction(async (transaction) => {
     const work = await transaction.workSubmission.findFirst({
       where: { id: workId, supervisorId },
@@ -224,7 +227,7 @@ export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
     const workStatus = status === "APPROVED" && work.fundingRequestId ? "COMPLETED" : status;
     const updatedWork = await transaction.workSubmission.updateMany({
       where: { id: workId, supervisorId, status: "UNDER_REVIEW" },
-      data: { status: workStatus, approvedAt: status === "APPROVED" ? new Date() : null },
+      data: { status: workStatus, approvedAt: status === "APPROVED" ? decidedAt : null },
     });
     if (updatedWork.count !== 1) {
       const error = new Error("Work was already decided by another request.");
@@ -236,7 +239,8 @@ export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
         where: { id: work.fundingRequestId, status: "UNDER_SUPERVISOR_REVIEW" },
         data: {
           status: status === "APPROVED" ? "COMPLETED" : "SUPERVISOR_REJECTED",
-          completedAt: status === "APPROVED" ? new Date() : null,
+          completedAt: status === "APPROVED" ? decidedAt : null,
+          lastStatusChangedAt: decidedAt,
         },
       });
       if (updatedRequest.count !== 1) {
