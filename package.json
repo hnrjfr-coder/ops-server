@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node --watch server.js",
     "start": "node server.js",
+    "test": "node --test",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio"

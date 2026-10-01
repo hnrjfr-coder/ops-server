@@ -1,13 +1,13 @@
 import { Router } from "express";
-import { requireAccountType } from "../middleware/auth.middleware.js";
+import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
 import { decideFundingRequest, getFunderFundingSummary, listFunderFundingRequests } from "../services/funding.service.js";
 
 export const funderRouter = Router();
-funderRouter.use(requireAccountType("FUNDER"));
+funderRouter.use(requireAuthenticatedAccountType("FUNDER"));
 
 funderRouter.get("/summary", async (request, response, next) => {
   try {
-    const funderId = request.authUser?.id || String(request.query.funderId || "");
+    const funderId = request.authUser.id;
     response.json(await getFunderFundingSummary(funderId));
   } catch (error) {
     next(error);
@@ -16,7 +16,7 @@ funderRouter.get("/summary", async (request, response, next) => {
 
 funderRouter.get("/requests", async (request, response, next) => {
   try {
-    const requests = await listFunderFundingRequests(request.authUser?.id || String(request.query.funderId || ""), request.query);
+    const requests = await listFunderFundingRequests(request.authUser.id, request.query);
     response.json(requests);
   } catch (error) {
     next(error);
@@ -26,7 +26,7 @@ funderRouter.get("/requests", async (request, response, next) => {
 funderRouter.patch("/requests/:requestId", async (request, response, next) => {
   try {
     const result = await decideFundingRequest(
-      request.authUser?.id || String(request.body.funderId || ""),
+      request.authUser.id,
       request.params.requestId,
       String(request.body.decision || "").toUpperCase(),
       request.body.transferConfirmed === true,

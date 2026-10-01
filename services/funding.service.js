@@ -9,7 +9,18 @@ const fixedFundingAmounts = {
   MONETIZE: { SUBSCRIPTION: 42000, RENEWAL: 49500 },
   NEILA: { SUBSCRIPTION: 35000, RENEWAL: 42000 },
 };
-const MAX_UNRESOLVED_SUBMITTED_WORKS = 4;
+const MAX_FUNDING_REQUESTS_PER_CYCLE = 4;
+
+export const requestsSinceCompletedBatch = (requests) => {
+  const cycleRequests = requests.filter((request) => !["FUNDER_REJECTED", "SUPERVISOR_REJECTED"].includes(request.status));
+  for (let index = 0; index <= cycleRequests.length - MAX_FUNDING_REQUESTS_PER_CYCLE; index += 1) {
+    const isCompletedBatch = cycleRequests
+      .slice(index, index + MAX_FUNDING_REQUESTS_PER_CYCLE)
+      .every((request) => request.status === "COMPLETED");
+    if (isCompletedBatch) return index;
+  }
+  return cycleRequests.length;
+};
 
 const resolveFixedAmount = (accountName, accountCategory) => {
   const normalizedAccountName = String(accountName || "").trim().toUpperCase();
@@ -100,16 +111,14 @@ export async function createFundingRequest(employeeId, input) {
     throw error;
   }
 
-  const recentFundingRequests = await transaction.fundingRequest.findMany({
+  const fundingCycleRequests = await transaction.fundingRequest.findMany({
     where: { employeeId },
     orderBy: { requestedAt: "desc" },
     select: { status: true },
   });
-  const consecutiveFundingRequestCount = recentFundingRequests.findIndex((request) => request.status === "COMPLETED") === -1
-    ? recentFundingRequests.length
-    : recentFundingRequests.findIndex((request) => request.status === "COMPLETED");
-  if (consecutiveFundingRequestCount >= MAX_UNRESOLVED_SUBMITTED_WORKS) {
-    const error = new Error(`You have ${consecutiveFundingRequestCount} consecutive funding requests without a completed supervisor-approved work cycle. Complete and receive supervisor approval for the submitted work before requesting more funding.`);
+  const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
+  if (fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE) {
+    const error = new Error(`You have reached the limit of ${MAX_FUNDING_REQUESTS_PER_CYCLE} active funding requests in this cycle. Complete and receive supervisor approval for all four requests before requesting more funding. Funder- or supervisor-rejected requests release their slot.`);
     error.statusCode = 409;
     throw error;
   }
@@ -154,18 +163,17 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
 
 export async function getEmployeeFundingSummary(employeeId) {
   const summary = await fundingSummary({ employeeId });
-  const recentFundingRequests = await prisma.fundingRequest.findMany({
+  const fundingCycleRequests = await prisma.fundingRequest.findMany({
     where: { employeeId },
     orderBy: { requestedAt: "desc" },
     select: { status: true },
   });
-  const completedIndex = recentFundingRequests.findIndex((request) => request.status === "COMPLETED");
-  const consecutiveFundingRequestCount = completedIndex === -1 ? recentFundingRequests.length : completedIndex;
+  const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
   return {
     ...summary,
-    maxUnresolvedSubmittedWorkRequests: MAX_UNRESOLVED_SUBMITTED_WORKS,
-    consecutiveFundingRequestCount,
-    fundingRequestBlocked: consecutiveFundingRequestCount >= MAX_UNRESOLVED_SUBMITTED_WORKS,
+    maxFundingRequestsPerCycle: MAX_FUNDING_REQUESTS_PER_CYCLE,
+    fundingCycleRequestCount,
+    fundingRequestBlocked: fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE,
   };
 }
 

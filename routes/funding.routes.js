@@ -1,13 +1,13 @@
 import { Router } from "express";
-import { requireAccountType } from "../middleware/auth.middleware.js";
+import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
 import { createFundingRequest, getEmployeeFundingSummary, listEmployeeFundingRequests } from "../services/funding.service.js";
 
 export const fundingRouter = Router();
-fundingRouter.use(requireAccountType("EMPLOYEE"));
+fundingRouter.use(requireAuthenticatedAccountType("EMPLOYEE"));
 
 fundingRouter.get("/summary", async (request, response, next) => {
   try {
-    const employeeId = request.authUser?.id || String(request.query.employeeId || "");
+    const employeeId = request.authUser.id;
     response.json(await getEmployeeFundingSummary(employeeId));
   } catch (error) {
     next(error);
@@ -16,7 +16,7 @@ fundingRouter.get("/summary", async (request, response, next) => {
 
 fundingRouter.get("/", async (request, response, next) => {
   try {
-    const result = await listEmployeeFundingRequests(request.authUser?.id || String(request.query.employeeId || ""), request.query);
+    const result = await listEmployeeFundingRequests(request.authUser.id, request.query);
     response.json(result);
   } catch (error) {
     next(error);
@@ -25,7 +25,7 @@ fundingRouter.get("/", async (request, response, next) => {
 
 fundingRouter.post("/", async (request, response, next) => {
   try {
-    const fundingRequest = await createFundingRequest(request.authUser?.id || String(request.body.employeeId || ""), request.body);
+    const fundingRequest = await createFundingRequest(request.authUser.id, request.body);
     response.status(201).json(fundingRequest);
   } catch (error) {
     next(error);
