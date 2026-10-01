@@ -9,6 +9,7 @@ const fixedFundingAmounts = {
   MONETIZE: { SUBSCRIPTION: 42000, RENEWAL: 49500 },
   NEILA: { SUBSCRIPTION: 35000, RENEWAL: 42000 },
 };
+const MAX_UNRESOLVED_SUBMITTED_WORKS = 4;
 
 const resolveFixedAmount = (accountName, accountCategory) => {
   const normalizedAccountName = String(accountName || "").trim().toUpperCase();
@@ -65,7 +66,8 @@ export async function createFundingRequest(employeeId, input) {
   const selectedAccountCategory = input.accountCategory ?? input.purpose ?? null;
   const { accountName, accountCategory, amount } = resolveFixedAmount(selectedAccountName, selectedAccountCategory);
 
-  const employee = await prisma.user.findUnique({
+  return prisma.$transaction(async (transaction) => {
+  const employee = await transaction.user.findUnique({
     where: { id: employeeId },
     select: {
       id: true,
@@ -98,7 +100,20 @@ export async function createFundingRequest(employeeId, input) {
     throw error;
   }
 
-  return prisma.fundingRequest.create({
+  const unresolvedSubmittedWorkCount = await transaction.workSubmission.count({
+    where: {
+      employeeId,
+      status: { not: "COMPLETED" },
+      fundingRequestId: { not: null },
+    },
+  });
+  if (unresolvedSubmittedWorkCount >= MAX_UNRESOLVED_SUBMITTED_WORKS) {
+    const error = new Error(`You have ${MAX_UNRESOLVED_SUBMITTED_WORKS} submitted funding requests awaiting supervisor approval. All submitted work must be approved before requesting more funding.`);
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return transaction.fundingRequest.create({
     data: {
       employeeId,
       supervisorId: employee.manager.id,
@@ -112,6 +127,7 @@ export async function createFundingRequest(employeeId, input) {
       supervisor: { select: { id: true, name: true } },
       funder: { select: { id: true, name: true } },
     },
+  });
   });
 }
 
@@ -136,7 +152,16 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
 }
 
 export async function getEmployeeFundingSummary(employeeId) {
-  return fundingSummary({ employeeId });
+  const summary = await fundingSummary({ employeeId });
+  const unresolvedSubmittedWorkCount = await prisma.workSubmission.count({
+    where: { employeeId, status: { not: "COMPLETED" }, fundingRequestId: { not: null } },
+  });
+  return {
+    ...summary,
+    maxUnresolvedSubmittedWorkRequests: MAX_UNRESOLVED_SUBMITTED_WORKS,
+    unresolvedSubmittedWorkRequestCount: unresolvedSubmittedWorkCount,
+    fundingRequestBlocked: unresolvedSubmittedWorkCount >= MAX_UNRESOLVED_SUBMITTED_WORKS,
+  };
 }
 
 export async function listFunderFundingRequests(funderId, input = {}) {
@@ -202,7 +227,13 @@ export async function listSupervisorFundingRequests(supervisorId, input = {}) {
 }
 
 export async function getSupervisorFundingSummary(supervisorId) {
-  return fundingSummary({ supervisorId });
+  const summary = await fundingSummary({ supervisorId });
+  const pendingUsers = await prisma.fundingRequest.findMany({
+    where: { supervisorId, status: "PENDING_FUNDER_APPROVAL" },
+    distinct: ["employeeId"],
+    select: { employeeId: true },
+  });
+  return { ...summary, pendingRequestUserCount: pendingUsers.length };
 }
 
 export async function decideFundingRequest(funderId, requestId, decision, transferConfirmed = false) {

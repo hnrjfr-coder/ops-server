@@ -179,6 +179,7 @@ export async function getSupervisorWorks(supervisorId) {
       underReview: works.filter((work) => work.status === "UNDER_REVIEW").length,
       approved: works.filter((work) => ["APPROVED", "COMPLETED", "PAID"].includes(work.status)).length,
       pendingPayouts: works.filter((work) => work.payment?.status === "PENDING").length,
+      underReviewEmployeeCount: new Set(works.filter((work) => work.status === "UNDER_REVIEW").map((work) => work.employeeId)).size,
     },
     works,
   };

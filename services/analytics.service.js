@@ -237,3 +237,59 @@ export async function getAdminAnalytics(input = {}) {
     },
   };
 }
+
+export async function listAdminAnalyticsRecords(input = {}) {
+  const type = String(input.type || "").toLowerCase();
+  if (!["funding", "work"].includes(type)) throw invalidInput("type must be funding or work.");
+  const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
+  const pageSize = Math.min(10, Math.max(1, Number.parseInt(input.pageSize, 10) || 10));
+  const skip = (page - 1) * pageSize;
+
+  if (type === "funding") {
+    const where = {};
+    const [items, total] = await Promise.all([
+      prisma.fundingRequest.findMany({
+        where,
+        orderBy: { requestedAt: "desc" },
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          employee: { select: { id: true, name: true, email: true } },
+          accountName: true,
+          accountCategory: true,
+          amount: true,
+          status: true,
+          requestedAt: true,
+          approvedAt: true,
+          work: { select: { id: true, status: true, submittedAt: true } },
+        },
+      }),
+      prisma.fundingRequest.count({ where }),
+    ]);
+    return { type, items, pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) } };
+  }
+
+  const where = {};
+  const [items, total] = await Promise.all([
+    prisma.workSubmission.findMany({
+      where,
+      orderBy: { submittedAt: "desc" },
+      skip,
+      take: pageSize,
+      select: {
+        id: true,
+        employee: { select: { id: true, name: true, email: true } },
+        accountName: true,
+        accountCategory: true,
+        status: true,
+        submittedAt: true,
+        completedAt: true,
+        approvedAt: true,
+        fundingRequest: { select: { id: true, status: true, amount: true } },
+      },
+    }),
+    prisma.workSubmission.count({ where }),
+  ]);
+  return { type, items, pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) } };
+}
