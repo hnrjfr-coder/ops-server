@@ -59,6 +59,36 @@ const paginatedResult = (items, total, page, pageSize) => ({
   pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
 });
 
+export function getFunderFundingDateRange(input = {}) {
+  const from = String(input.from || "");
+  const to = String(input.to || "");
+  if (!from && !to) return null;
+  if (!from || !to) {
+    const error = new Error("Provide both from and to dates.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const isValidDate = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  };
+  if (!isValidDate(from) || !isValidDate(to)) {
+    const error = new Error("from and to must be valid dates in YYYY-MM-DD format.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (from > to) {
+    const error = new Error("from must be on or before to.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const start = new Date(`${from}T00:00:00+01:00`);
+  const endExclusive = new Date(`${to}T00:00:00+01:00`);
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+  return { from, to, start, endExclusive };
+}
+
 async function fundingSummary(where) {
   const groups = await prisma.fundingRequest.groupBy({
     by: ["status"],
@@ -215,8 +245,29 @@ export async function listFunderFundingRequests(funderId, input = {}) {
   return paginatedResult(funderItems, total, page, pageSize);
 }
 
-export async function getFunderFundingSummary(funderId) {
-  return fundingSummary({ funderId });
+export async function getFunderFundingSummary(funderId, input = {}) {
+  const dateRange = getFunderFundingDateRange(input);
+  const summary = await fundingSummary({ funderId });
+  if (!dateRange) return summary;
+  const funded = await prisma.fundingRequest.aggregate({
+    where: {
+      funderId,
+      status: "APPROVED",
+      approvedAt: { gte: dateRange.start, lt: dateRange.endExclusive },
+    },
+    _count: { _all: true },
+    _sum: { amount: true },
+  });
+  return {
+    ...summary,
+    fundedPeriod: {
+      from: dateRange.from,
+      to: dateRange.to,
+      timezone: "Africa/Lagos",
+      count: funded._count._all,
+      amount: funded._sum.amount || 0,
+    },
+  };
 }
 
 export async function listSupervisorFundingRequests(supervisorId, input = {}) {

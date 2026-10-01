@@ -8,7 +8,7 @@ funderRouter.use(requireAuthenticatedAccountType("FUNDER"));
 funderRouter.get("/summary", async (request, response, next) => {
   try {
     const funderId = request.authUser.id;
-    response.json(await getFunderFundingSummary(funderId));
+    response.json(await getFunderFundingSummary(funderId, request.query));
   } catch (error) {
     next(error);
   }
