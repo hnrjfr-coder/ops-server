@@ -188,7 +188,19 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
   const [items, total] = await Promise.all([
     prisma.fundingRequest.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        employeeId: true,
+        funderId: true,
+        supervisorId: true,
+        accountName: true,
+        accountCategory: true,
+        amount: true,
+        purpose: true,
+        status: true,
+        requestedAt: true,
+        approvedAt: true,
+        completedAt: true,
         supervisor: { select: { id: true, name: true } },
         funder: { select: { id: true, name: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true, approvedAt: true, updatedAt: true } },
