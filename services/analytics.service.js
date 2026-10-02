@@ -131,12 +131,13 @@ export async function getAdminAnalytics(input = {}) {
   const { from, to, endExclusive } = getDateRange(period, input);
   const dateFormat = periods[period].dateFormat;
   const fundingBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const fundingPendingBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const payoutRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const payoutDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const workBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const employeeBucket = Prisma.sql`to_char(date_trunc(${period}, "createdAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
 
-  const [current, fundingRows, payoutRequestRows, payoutDecisionRows, workRows, employeeRows] = await Promise.all([
+  const [current, fundingRows, fundingPendingRows, payoutRequestRows, payoutDecisionRows, workRows, employeeRows] = await Promise.all([
     getCurrentSnapshot(),
     prisma.$queryRaw`
       SELECT ${fundingBucket} AS bucket,
@@ -144,6 +145,15 @@ export async function getAdminAnalytics(input = {}) {
         COALESCE(SUM("amount"), 0)::float8 AS amount
       FROM "ops"."FundingRequest"
       WHERE "approvedAt" >= ${from} AND "approvedAt" < ${endExclusive}
+      GROUP BY 1 ORDER BY 1
+    `,
+    prisma.$queryRaw`
+      SELECT ${fundingPendingBucket} AS bucket,
+        COUNT(*)::int AS count,
+        COALESCE(SUM("amount"), 0)::float8 AS amount
+      FROM "ops"."FundingRequest"
+      WHERE "status" = 'PENDING_FUNDER_APPROVAL'
+        AND "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -178,19 +188,26 @@ export async function getAdminAnalytics(input = {}) {
   ]);
 
   const fundingByBucket = indexRows(fundingRows);
+  const pendingFundingByBucket = indexRows(fundingPendingRows);
   const payoutRequestsByBucket = indexRows(payoutRequestRows);
   const payoutDecisionsByBucket = indexRows(payoutDecisionRows);
   const worksByBucket = indexRows(workRows);
   const employeesByBucket = indexRows(employeeRows);
   const series = createBuckets(from, to, period).map((bucket) => {
     const funding = fundingByBucket.get(bucket);
+    const pendingFunding = pendingFundingByBucket.get(bucket);
     const payoutRequests = payoutRequestsByBucket.get(bucket);
     const payoutDecisions = payoutDecisionsByBucket.get(bucket);
     const works = worksByBucket.get(bucket);
     const employees = employeesByBucket.get(bucket);
     return {
       bucket,
-      funding: { transferredCount: funding?.count || 0, transferredAmount: toNumber(funding?.amount) },
+      funding: {
+        transferredCount: funding?.count || 0,
+        transferredAmount: toNumber(funding?.amount),
+        pendingCount: pendingFunding?.count || 0,
+        pendingAmount: toNumber(pendingFunding?.amount),
+      },
       payouts: {
         requestCount: payoutRequests?.count || 0,
         requestedAmount: toNumber(payoutRequests?.amount),
@@ -206,6 +223,8 @@ export async function getAdminAnalytics(input = {}) {
   const periodTotals = series.reduce((totals, bucket) => {
     totals.fundingTransferredCount += bucket.funding.transferredCount;
     totals.fundingTransferredAmount += bucket.funding.transferredAmount;
+    totals.fundingPendingCount += bucket.funding.pendingCount;
+    totals.fundingPendingAmount += bucket.funding.pendingAmount;
     totals.payoutRequestCount += bucket.payouts.requestCount;
     totals.payoutRequestedAmount += bucket.payouts.requestedAmount;
     totals.payoutPaidCount += bucket.payouts.paidCount;
@@ -217,6 +236,8 @@ export async function getAdminAnalytics(input = {}) {
   }, {
     fundingTransferredCount: 0,
     fundingTransferredAmount: 0,
+    fundingPendingCount: 0,
+    fundingPendingAmount: 0,
     payoutRequestCount: 0,
     payoutRequestedAmount: 0,
     payoutPaidCount: 0,
