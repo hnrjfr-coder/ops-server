@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  getFunderFundingDateRange,
+  getFundingDateRange,
   hasUnsubmittedApprovedFundingRequest,
   requestsSinceCompletedBatch,
 } from "./funding.service.js";
@@ -82,15 +82,15 @@ test("pending or rejected funding does not trigger the submission gate", () => {
 });
 
 test("funder date ranges use inclusive Africa/Lagos calendar days", () => {
-  const range = getFunderFundingDateRange({ from: "2026-10-01", to: "2026-10-01" });
+  const range = getFundingDateRange({ from: "2026-10-01", to: "2026-10-01" });
   assert.equal(range.start.toISOString(), "2026-09-30T23:00:00.000Z");
   assert.equal(range.endExclusive.toISOString(), "2026-10-01T23:00:00.000Z");
 });
 
 test("funder date ranges reject invalid or incomplete dates", () => {
-  assert.throws(() => getFunderFundingDateRange({ from: "2026-10-01" }), { statusCode: 400 });
-  assert.throws(() => getFunderFundingDateRange({ from: "2026-02-30", to: "2026-03-01" }), { statusCode: 400 });
-  assert.throws(() => getFunderFundingDateRange({ from: "2026-10-02", to: "2026-10-01" }), { statusCode: 400 });
+  assert.throws(() => getFundingDateRange({ from: "2026-10-01" }), { statusCode: 400 });
+  assert.throws(() => getFundingDateRange({ from: "2026-02-30", to: "2026-03-01" }), { statusCode: 400 });
+  assert.throws(() => getFundingDateRange({ from: "2026-10-02", to: "2026-10-01" }), { statusCode: 400 });
 });
 
 test("total received includes paid payouts only", () => {

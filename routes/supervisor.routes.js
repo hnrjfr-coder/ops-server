@@ -9,7 +9,7 @@ supervisorRouter.use(requireAuthenticatedAccountType("SUPERVISOR"));
 supervisorRouter.get("/funding-summary", async (request, response, next) => {
   try {
     const supervisorId = request.authUser.id;
-    response.json(await getSupervisorFundingSummary(supervisorId));
+    response.json(await getSupervisorFundingSummary(supervisorId, request.query));
   } catch (error) {
     next(error);
   }
@@ -36,7 +36,7 @@ supervisorRouter.get("/employees", async (request, response, next) => {
 supervisorRouter.get("/works", async (request, response, next) => {
   try {
     const supervisorId = request.authUser.id;
-    response.json(await getSupervisorWorks(supervisorId));
+    response.json(await getSupervisorWorks(supervisorId, request.query));
   } catch (error) {
     next(error);
   }

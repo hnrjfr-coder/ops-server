@@ -8,7 +8,7 @@ fundingRouter.use(requireAuthenticatedAccountType("EMPLOYEE"));
 fundingRouter.get("/summary", async (request, response, next) => {
   try {
     const employeeId = request.authUser.id;
-    response.json(await getEmployeeFundingSummary(employeeId));
+    response.json(await getEmployeeFundingSummary(employeeId, request.query));
   } catch (error) {
     next(error);
   }

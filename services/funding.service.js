@@ -62,7 +62,7 @@ const paginatedResult = (items, total, page, pageSize) => ({
   pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
 });
 
-export function getFunderFundingDateRange(input = {}) {
+export function getFundingDateRange(input = {}) {
   const from = String(input.from || "");
   const to = String(input.to || "");
   if (!from && !to) return null;
@@ -184,7 +184,13 @@ export async function createFundingRequest(employeeId, input) {
 
 export async function listEmployeeFundingRequests(employeeId, input = {}) {
   const { page, pageSize, skip } = parsePagination(input);
-  const where = { employeeId };
+  const dateRange = getFundingDateRange(input);
+  const status = String(input.status || "").trim();
+  const where = {
+    employeeId,
+    ...(status ? { status } : {}),
+    ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
+  };
   const [items, total] = await Promise.all([
     prisma.fundingRequest.findMany({
       where,
@@ -214,8 +220,13 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
   return paginatedResult(items, total, page, pageSize);
 }
 
-export async function getEmployeeFundingSummary(employeeId) {
-  const summary = await fundingSummary({ employeeId });
+export async function getEmployeeFundingSummary(employeeId, input = {}) {
+  const dateRange = getFundingDateRange(input);
+  const summaryWhere = {
+    employeeId,
+    ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
+  };
+  const summary = await fundingSummary(summaryWhere);
   const fundingCycleRequests = await prisma.fundingRequest.findMany({
     where: { employeeId },
     orderBy: { requestedAt: "desc" },
@@ -271,7 +282,7 @@ export async function listFunderFundingRequests(funderId, input = {}) {
 }
 
 export async function getFunderFundingSummary(funderId, input = {}) {
-  const dateRange = getFunderFundingDateRange(input);
+  const dateRange = getFundingDateRange(input);
   const summary = await fundingSummary({ funderId });
   if (!dateRange) return summary;
   const funded = await prisma.fundingRequest.aggregate({
@@ -297,7 +308,13 @@ export async function getFunderFundingSummary(funderId, input = {}) {
 
 export async function listSupervisorFundingRequests(supervisorId, input = {}) {
   const { page, pageSize, skip } = parsePagination(input);
-  const where = { supervisorId };
+  const dateRange = getFundingDateRange(input);
+  const status = String(input.status || "").trim();
+  const where = {
+    supervisorId,
+    ...(status ? { status } : {}),
+    ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
+  };
   const [items, total] = await Promise.all([
     prisma.fundingRequest.findMany({
       where,
@@ -315,10 +332,15 @@ export async function listSupervisorFundingRequests(supervisorId, input = {}) {
   return paginatedResult(items, total, page, pageSize);
 }
 
-export async function getSupervisorFundingSummary(supervisorId) {
-  const summary = await fundingSummary({ supervisorId });
+export async function getSupervisorFundingSummary(supervisorId, input = {}) {
+  const dateRange = getFundingDateRange(input);
+  const summaryWhere = {
+    supervisorId,
+    ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
+  };
+  const summary = await fundingSummary(summaryWhere);
   const pendingUsers = await prisma.fundingRequest.findMany({
-    where: { supervisorId, status: "PENDING_FUNDER_APPROVAL" },
+    where: { ...summaryWhere, status: "PENDING_FUNDER_APPROVAL" },
     distinct: ["employeeId"],
     select: { employeeId: true },
   });
