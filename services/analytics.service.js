@@ -137,7 +137,7 @@ export async function getAdminAnalytics(input = {}) {
   const workBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const employeeBucket = Prisma.sql`to_char(date_trunc(${period}, "createdAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
 
-  const [current, fundingRows, fundingPendingRows, payoutRequestRows, payoutDecisionRows, workRows, employeeRows] = await Promise.all([
+  const [current, fundingRows, fundingRequestRows, payoutRequestRows, payoutDecisionRows, workRows, employeeRows] = await Promise.all([
     getCurrentSnapshot(),
     prisma.$queryRaw`
       SELECT ${fundingBucket} AS bucket,
@@ -149,11 +149,12 @@ export async function getAdminAnalytics(input = {}) {
     `,
     prisma.$queryRaw`
       SELECT ${fundingPendingBucket} AS bucket,
-        COUNT(*)::int AS count,
-        COALESCE(SUM("amount"), 0)::float8 AS amount
+        COUNT(*)::int AS "requestedCount",
+        COALESCE(SUM("amount"), 0)::float8 AS "requestedAmount",
+        COUNT(*) FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL')::int AS "pendingCount",
+        COALESCE(SUM("amount") FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL'), 0)::float8 AS "pendingAmount"
       FROM "ops"."FundingRequest"
-      WHERE "status" = 'PENDING_FUNDER_APPROVAL'
-        AND "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
+      WHERE "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -188,14 +189,14 @@ export async function getAdminAnalytics(input = {}) {
   ]);
 
   const fundingByBucket = indexRows(fundingRows);
-  const pendingFundingByBucket = indexRows(fundingPendingRows);
+  const fundingRequestsByBucket = indexRows(fundingRequestRows);
   const payoutRequestsByBucket = indexRows(payoutRequestRows);
   const payoutDecisionsByBucket = indexRows(payoutDecisionRows);
   const worksByBucket = indexRows(workRows);
   const employeesByBucket = indexRows(employeeRows);
   const series = createBuckets(from, to, period).map((bucket) => {
     const funding = fundingByBucket.get(bucket);
-    const pendingFunding = pendingFundingByBucket.get(bucket);
+    const fundingRequests = fundingRequestsByBucket.get(bucket);
     const payoutRequests = payoutRequestsByBucket.get(bucket);
     const payoutDecisions = payoutDecisionsByBucket.get(bucket);
     const works = worksByBucket.get(bucket);
@@ -205,8 +206,10 @@ export async function getAdminAnalytics(input = {}) {
       funding: {
         transferredCount: funding?.count || 0,
         transferredAmount: toNumber(funding?.amount),
-        pendingCount: pendingFunding?.count || 0,
-        pendingAmount: toNumber(pendingFunding?.amount),
+        requestedCount: fundingRequests?.requestedCount || 0,
+        requestedAmount: toNumber(fundingRequests?.requestedAmount),
+        pendingCount: fundingRequests?.pendingCount || 0,
+        pendingAmount: toNumber(fundingRequests?.pendingAmount),
       },
       payouts: {
         requestCount: payoutRequests?.count || 0,
@@ -223,6 +226,8 @@ export async function getAdminAnalytics(input = {}) {
   const periodTotals = series.reduce((totals, bucket) => {
     totals.fundingTransferredCount += bucket.funding.transferredCount;
     totals.fundingTransferredAmount += bucket.funding.transferredAmount;
+    totals.fundingRequestedCount += bucket.funding.requestedCount;
+    totals.fundingRequestedAmount += bucket.funding.requestedAmount;
     totals.fundingPendingCount += bucket.funding.pendingCount;
     totals.fundingPendingAmount += bucket.funding.pendingAmount;
     totals.payoutRequestCount += bucket.payouts.requestCount;
@@ -236,6 +241,8 @@ export async function getAdminAnalytics(input = {}) {
   }, {
     fundingTransferredCount: 0,
     fundingTransferredAmount: 0,
+    fundingRequestedCount: 0,
+    fundingRequestedAmount: 0,
     fundingPendingCount: 0,
     fundingPendingAmount: 0,
     payoutRequestCount: 0,
