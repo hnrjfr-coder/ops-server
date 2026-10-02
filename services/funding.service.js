@@ -12,7 +12,7 @@ const fixedFundingAmounts = {
 const MAX_FUNDING_REQUESTS_PER_CYCLE = 4;
 
 export const requestsSinceCompletedBatch = (requests) => {
-  const cycleRequests = requests.filter((request) => !["FUNDER_REJECTED", "SUPERVISOR_REJECTED"].includes(request.status));
+  const cycleRequests = requests.filter((request) => !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUND_PENDING", "REFUNDED"].includes(request.status));
   for (let index = 0; index <= cycleRequests.length - MAX_FUNDING_REQUESTS_PER_CYCLE; index += 1) {
     const isCompletedBatch = cycleRequests
       .slice(index, index + MAX_FUNDING_REQUESTS_PER_CYCLE)
@@ -26,10 +26,11 @@ export const hasUnsubmittedApprovedFundingRequest = (requests) =>
   requests.some((request) => request.status === "APPROVED" && !request.work);
 
 export function getFundingRequestBlockReason(requests) {
-  if (requests.some((request) => request.status === "PENDING_FUNDER_APPROVAL")) {
+  const activeRequests = requests.filter((request) => !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUND_PENDING", "REFUNDED"].includes(request.status));
+  if (activeRequests.some((request) => request.status === "PENDING_FUNDER_APPROVAL")) {
     return "AWAITING_FUNDER_APPROVAL";
   }
-  if (hasUnsubmittedApprovedFundingRequest(requests)) return "AWAITING_WORK_SUBMISSION";
+  if (hasUnsubmittedApprovedFundingRequest(activeRequests)) return "AWAITING_WORK_SUBMISSION";
   return null;
 }
 
@@ -98,6 +99,13 @@ export function getFundingDateRange(input = {}) {
   const endExclusive = new Date(`${to}T00:00:00+01:00`);
   endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
   return { from, to, start, endExclusive };
+}
+
+export function getConfirmedFundingPeriodWhere(funderId, dateRange) {
+  return {
+    funderId,
+    approvedAt: { gte: dateRange.start, lt: dateRange.endExclusive },
+  };
 }
 
 async function fundingSummary(where) {
@@ -223,6 +231,16 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
         supervisor: { select: { id: true, name: true } },
         funder: { select: { id: true, name: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true, approvedAt: true, updatedAt: true } },
+        refunds: {
+          orderBy: { requestedAt: "desc" },
+          take: 1,
+          select: { id: true, status: true, requestedAt: true, processedAt: true, paymentReference: true, funderNote: true },
+        },
+        reports: {
+          orderBy: { requestedAt: "desc" },
+          take: 1,
+          select: { id: true, reason: true, status: true, requestedAt: true, processedAt: true, funderNote: true },
+        },
       },
       orderBy: { requestedAt: "desc" },
       skip,
@@ -307,11 +325,7 @@ export async function getFunderFundingSummary(funderId, input = {}) {
   const summary = await fundingSummary({ funderId });
   if (!dateRange) return summary;
   const funded = await prisma.fundingRequest.aggregate({
-    where: {
-      funderId,
-      status: "APPROVED",
-      approvedAt: { gte: dateRange.start, lt: dateRange.endExclusive },
-    },
+    where: getConfirmedFundingPeriodWhere(funderId, dateRange),
     _count: { _all: true },
     _sum: { amount: true },
   });

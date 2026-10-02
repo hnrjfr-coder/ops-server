@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
-import { getAdminOverview, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
+import { approveEmployeeAccount, getAdminOverview, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
 import { getAdminAnalytics, listAdminAnalyticsRecords } from "../services/analytics.service.js";
 
 export const adminRouter = Router();
@@ -41,6 +41,14 @@ adminRouter.get("/analytics", async (request, response, next) => {
 adminRouter.get("/analytics/records", async (request, response, next) => {
   try {
     response.json(await listAdminAnalyticsRecords(request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.patch("/staff/:staffId/approval", async (request, response, next) => {
+  try {
+    response.json(await approveEmployeeAccount(request.params.staffId, request.authUser.id));
   } catch (error) {
     next(error);
   }

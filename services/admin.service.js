@@ -47,6 +47,8 @@ export async function listAdminStaff() {
         phone: true,
         status: true,
         createdAt: true,
+        adminApprovedAt: true,
+        adminApprover: { select: { id: true, name: true } },
         manager: { select: { id: true, name: true } },
         _count: { select: { work: true, payoutRequests: true } },
       },
@@ -56,6 +58,22 @@ export async function listAdminStaff() {
   ]);
 
   return { employees, employeeCount, activeEmployeeCount };
+}
+
+export async function approveEmployeeAccount(employeeId, adminId) {
+  const result = await prisma.user.updateMany({
+    where: { id: employeeId, accountType: "EMPLOYEE", status: "PENDING_ADMIN_APPROVAL" },
+    data: { status: "ACTIVE", adminApproverId: adminId, adminApprovedAt: new Date() },
+  });
+  if (result.count !== 1) {
+    const error = new Error("Pending employee account was not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  return prisma.user.findUnique({
+    where: { id: employeeId },
+    select: { id: true, name: true, email: true, status: true, adminApprovedAt: true, adminApproverId: true },
+  });
 }
 
 export async function getAdminStaffDetails(staffId) {

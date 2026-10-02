@@ -21,6 +21,9 @@ model User {
   managerId                   String?
   manager                     User?            @relation("SupervisorEmployees", fields: [managerId], references: [id], onDelete: SetNull)
   managedEmployees            User[]           @relation("SupervisorEmployees")
+  adminApproverId             String?
+  adminApprover               User?            @relation("EmployeeAdminApproval", fields: [adminApproverId], references: [id], onDelete: SetNull)
+  adminApprovedEmployees      User[]           @relation("EmployeeAdminApproval")
   funderId                    String?
   funder                      User?            @relation("FunderSupervisors", fields: [funderId], references: [id], onDelete: SetNull)
   supervisors                 User[]           @relation("FunderSupervisors")
@@ -36,7 +39,11 @@ model User {
   payoutBankName              String?
   payoutAccountHolderName     String?
   payoutAccountNumber         String?
+  refundBankName              String?
+  refundAccountHolderName     String?
+  refundAccountNumber         String?
   createdAt                   DateTime         @default(now())
+  adminApprovedAt             DateTime?
   updatedAt                   DateTime         @updatedAt
   work                        WorkSubmission[]
   payments                    PaymentRequest[]
@@ -47,6 +54,10 @@ model User {
   fundingRequestsAsEmployee   FundingRequest[] @relation("FundingRequestEmployee")
   fundingRequestsAsFunder     FundingRequest[] @relation("FundingRequestFunder")
   fundingRequestsAsSupervisor FundingRequest[] @relation("FundingRequestSupervisor")
+  refundRequestsAsEmployee    RefundRequest[]  @relation("RefundRequestEmployee")
+  refundRequestsAsFunder      RefundRequest[]  @relation("RefundRequestFunder")
+  fundingReportsAsEmployee    FundingReport[]  @relation("FundingReportEmployee")
+  fundingReportsAsFunder      FundingReport[]  @relation("FundingReportFunder")
 
   @@index([accountType, status])
   @@index([accountType, createdAt])
@@ -100,12 +111,58 @@ model FundingRequest {
   approvedAt      DateTime?
   completedAt     DateTime?
   work            WorkSubmission?
+  refunds          RefundRequest[]
+  reports          FundingReport[]
 
   @@index([employeeId, status, requestedAt])
   @@index([funderId, status, requestedAt])
   @@index([supervisorId, status, requestedAt])
   @@index([status, requestedAt])
   @@index([approvedAt])
+  @@schema("ops")
+}
+
+model RefundRequest {
+  id                String         @id @default(cuid())
+  fundingRequestId  String
+  fundingRequest    FundingRequest @relation(fields: [fundingRequestId], references: [id], onDelete: Restrict)
+  employeeId        String
+  employee          User           @relation("RefundRequestEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  funderId          String
+  funder            User           @relation("RefundRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
+  amount            Int
+  status            String         @default("PENDING_FUNDER_APPROVAL")
+  paymentReference  String?
+  employeeConfirmedAt DateTime      @default(now())
+  requestedAt       DateTime       @default(now())
+  processedAt       DateTime?
+  funderNote        String?
+
+  @@index([employeeId, requestedAt])
+  @@index([funderId, status, requestedAt])
+  @@index([fundingRequestId, status])
+  @@index([status, requestedAt])
+  @@schema("ops")
+}
+
+model FundingReport {
+  id               String         @id @default(cuid())
+  fundingRequestId String
+  fundingRequest   FundingRequest @relation(fields: [fundingRequestId], references: [id], onDelete: Restrict)
+  employeeId       String
+  employee         User           @relation("FundingReportEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  funderId         String
+  funder           User           @relation("FundingReportFunder", fields: [funderId], references: [id], onDelete: Restrict)
+  reason           String         @db.VarChar(2000)
+  status           String         @default("PENDING_FUNDER_APPROVAL")
+  requestedAt      DateTime       @default(now())
+  processedAt      DateTime?
+  funderNote        String?
+
+  @@index([employeeId, requestedAt])
+  @@index([funderId, status, requestedAt])
+  @@index([fundingRequestId, requestedAt])
+  @@index([status, requestedAt])
   @@schema("ops")
 }
 

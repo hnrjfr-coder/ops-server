@@ -2,11 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getFundingDateRange,
+  getConfirmedFundingPeriodWhere,
   getFundingRequestBlockReason,
   hasUnsubmittedApprovedFundingRequest,
   requestsSinceCompletedBatch,
 } from "./funding.service.js";
 import { sumPaidPayoutAmounts } from "./payout.service.js";
+import { normalizeFundingReportReason } from "./funding-report.service.js";
+import { getInitialAccountStatus } from "./auth.service.js";
 
 const statuses = (...values) => values.map((status) => ({ status }));
 
@@ -23,6 +26,20 @@ test("funder-rejected requests release their cycle slots", () => {
   assert.equal(
     requestsSinceCompletedBatch(statuses("PENDING_FUNDER_APPROVAL", "FUNDER_REJECTED", "APPROVED", "PENDING_FUNDER_APPROVAL")),
     3,
+  );
+});
+
+test("approved refunds also release the cycle and do not block a new request", () => {
+  assert.equal(
+    requestsSinceCompletedBatch(statuses("PENDING_FUNDER_APPROVAL", "APPROVED", "REFUND_PENDING", "REFUNDED", "PENDING_FUNDER_APPROVAL")),
+    3,
+  );
+  assert.equal(
+    getFundingRequestBlockReason([
+      { status: "REFUND_PENDING", work: null },
+      { status: "REFUNDED", work: null },
+    ]),
+    null,
   );
 });
 
@@ -116,6 +133,14 @@ test("funder date ranges reject invalid or incomplete dates", () => {
   assert.throws(() => getFundingDateRange({ from: "2026-10-02", to: "2026-10-01" }), { statusCode: 400 });
 });
 
+test("confirmed funding period totals retain requests after later status changes", () => {
+  const dateRange = getFundingDateRange({ from: "2026-10-01", to: "2026-10-01" });
+  assert.deepEqual(getConfirmedFundingPeriodWhere("funder-1", dateRange), {
+    funderId: "funder-1",
+    approvedAt: { gte: dateRange.start, lt: dateRange.endExclusive },
+  });
+});
+
 test("total received includes paid payouts only", () => {
   assert.equal(sumPaidPayoutAmounts([
     { status: "PAID", amount: 60000 },
@@ -123,4 +148,16 @@ test("total received includes paid payouts only", () => {
     { status: "REJECTED", amount: 12000 },
     { status: "APPROVED", amount: 15000 },
   ]), 60000);
+});
+
+test("funding report reason is required, trimmed, and length-limited", () => {
+  assert.equal(normalizeFundingReportReason("  Funds used for the approved subscription.  "), "Funds used for the approved subscription.");
+  assert.throws(() => normalizeFundingReportReason("  "), { statusCode: 400 });
+  assert.throws(() => normalizeFundingReportReason("r".repeat(2001)), { statusCode: 400 });
+});
+
+test("new employees require admin approval while other account types stay active", () => {
+  assert.equal(getInitialAccountStatus("EMPLOYEE"), "PENDING_ADMIN_APPROVAL");
+  assert.equal(getInitialAccountStatus("SUPERVISOR"), "ACTIVE");
+  assert.equal(getInitialAccountStatus("FUNDER"), "ACTIVE");
 });

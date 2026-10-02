@@ -1,9 +1,47 @@
 import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
 import { createFundingRequest, getEmployeeFundingSummary, listEmployeeFundingRequests } from "../services/funding.service.js";
+import { createEmployeeRefundRequest, getEmployeeRefundDetails, listEmployeeRefundRequests } from "../services/refund.service.js";
+import { createEmployeeFundingReport, listEmployeeFundingReports } from "../services/funding-report.service.js";
 
 export const fundingRouter = Router();
 fundingRouter.use(requireAuthenticatedAccountType("EMPLOYEE"));
+
+fundingRouter.get("/reports", async (request, response, next) => {
+  try {
+    response.json(await listEmployeeFundingReports(request.authUser.id, request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+fundingRouter.get("/refunds", async (request, response, next) => {
+  try {
+    response.json(await listEmployeeRefundRequests(request.authUser.id, request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+fundingRouter.get("/:requestId/refund-details", async (request, response, next) => {
+  try {
+    response.json(await getEmployeeRefundDetails(request.authUser.id, request.params.requestId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+fundingRouter.post("/:requestId/refund", async (request, response, next) => {
+  try {
+    const refund = await createEmployeeRefundRequest(request.authUser.id, {
+      ...request.body,
+      fundingRequestId: request.params.requestId,
+    });
+    response.status(201).json(refund);
+  } catch (error) {
+    next(error);
+  }
+});
 
 fundingRouter.get("/summary", async (request, response, next) => {
   try {
@@ -27,6 +65,15 @@ fundingRouter.post("/", async (request, response, next) => {
   try {
     const fundingRequest = await createFundingRequest(request.authUser.id, request.body);
     response.status(201).json(fundingRequest);
+  } catch (error) {
+    next(error);
+  }
+});
+
+fundingRouter.post("/:requestId/report", async (request, response, next) => {
+  try {
+    const report = await createEmployeeFundingReport(request.authUser.id, request.params.requestId, request.body);
+    response.status(201).json(report);
   } catch (error) {
     next(error);
   }

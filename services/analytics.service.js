@@ -96,7 +96,7 @@ function indexRows(rows) {
 }
 
 async function getCurrentSnapshot() {
-  const [employeeCount, activeEmployeeCount, pendingFunding, pendingPayouts] = await Promise.all([
+  const [employeeCount, activeEmployeeCount, pendingFunding, pendingPayouts, pendingRefunds] = await Promise.all([
     prisma.user.count({ where: { accountType: "EMPLOYEE" } }),
     prisma.user.count({ where: { accountType: "EMPLOYEE", status: "ACTIVE" } }),
     prisma.fundingRequest.aggregate({
@@ -106,6 +106,11 @@ async function getCurrentSnapshot() {
     }),
     prisma.payoutRequest.aggregate({
       where: { status: "PENDING" },
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
+    prisma.refundRequest.aggregate({
+      where: { status: "PENDING_FUNDER_APPROVAL" },
       _count: { _all: true },
       _sum: { amount: true },
     }),
@@ -121,6 +126,10 @@ async function getCurrentSnapshot() {
       pendingCount: pendingPayouts._count._all,
       pendingAmount: pendingPayouts._sum.amount || 0,
     },
+    refunds: {
+      pendingCount: pendingRefunds._count._all,
+      pendingAmount: pendingRefunds._sum.amount || 0,
+    },
   };
 }
 
@@ -134,10 +143,12 @@ export async function getAdminAnalytics(input = {}) {
   const fundingPendingBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const payoutRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const payoutDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const refundRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const refundDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const workBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const employeeBucket = Prisma.sql`to_char(date_trunc(${period}, "createdAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
 
-  const [current, fundingRows, fundingRequestRows, payoutRequestRows, payoutDecisionRows, workRows, employeeRows] = await Promise.all([
+  const [current, fundingRows, fundingRequestRows, payoutRequestRows, payoutDecisionRows, refundRequestRows, refundDecisionRows, workRows, employeeRows] = await Promise.all([
     getCurrentSnapshot(),
     prisma.$queryRaw`
       SELECT ${fundingBucket} AS bucket,
@@ -175,6 +186,25 @@ export async function getAdminAnalytics(input = {}) {
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
+      SELECT ${refundRequestBucket} AS bucket,
+        COUNT(*)::int AS "requestedCount",
+        COALESCE(SUM("amount"), 0)::float8 AS "requestedAmount",
+        COUNT(*) FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL')::int AS "pendingCount",
+        COALESCE(SUM("amount") FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL'), 0)::float8 AS "pendingAmount"
+      FROM "ops"."RefundRequest"
+      WHERE "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
+      GROUP BY 1 ORDER BY 1
+    `,
+    prisma.$queryRaw`
+      SELECT ${refundDecisionBucket} AS bucket,
+        COUNT(*) FILTER (WHERE "status" = 'APPROVED')::int AS "approvedCount",
+        COALESCE(SUM("amount") FILTER (WHERE "status" = 'APPROVED'), 0)::float8 AS "approvedAmount",
+        COUNT(*) FILTER (WHERE "status" = 'REJECTED')::int AS "rejectedCount"
+      FROM "ops"."RefundRequest"
+      WHERE "processedAt" >= ${from} AND "processedAt" < ${endExclusive}
+      GROUP BY 1 ORDER BY 1
+    `,
+    prisma.$queryRaw`
       SELECT ${workBucket} AS bucket, COUNT(*)::int AS count
       FROM "ops"."WorkSubmission"
       WHERE "status" = 'COMPLETED' AND "approvedAt" >= ${from} AND "approvedAt" < ${endExclusive}
@@ -192,6 +222,8 @@ export async function getAdminAnalytics(input = {}) {
   const fundingRequestsByBucket = indexRows(fundingRequestRows);
   const payoutRequestsByBucket = indexRows(payoutRequestRows);
   const payoutDecisionsByBucket = indexRows(payoutDecisionRows);
+  const refundRequestsByBucket = indexRows(refundRequestRows);
+  const refundDecisionsByBucket = indexRows(refundDecisionRows);
   const worksByBucket = indexRows(workRows);
   const employeesByBucket = indexRows(employeeRows);
   const series = createBuckets(from, to, period).map((bucket) => {
@@ -199,6 +231,8 @@ export async function getAdminAnalytics(input = {}) {
     const fundingRequests = fundingRequestsByBucket.get(bucket);
     const payoutRequests = payoutRequestsByBucket.get(bucket);
     const payoutDecisions = payoutDecisionsByBucket.get(bucket);
+    const refundRequests = refundRequestsByBucket.get(bucket);
+    const refundDecisions = refundDecisionsByBucket.get(bucket);
     const works = worksByBucket.get(bucket);
     const employees = employeesByBucket.get(bucket);
     return {
@@ -210,6 +244,15 @@ export async function getAdminAnalytics(input = {}) {
         requestedAmount: toNumber(fundingRequests?.requestedAmount),
         pendingCount: fundingRequests?.pendingCount || 0,
         pendingAmount: toNumber(fundingRequests?.pendingAmount),
+      },
+      refunds: {
+        requestedCount: refundRequests?.requestedCount || 0,
+        requestedAmount: toNumber(refundRequests?.requestedAmount),
+        pendingCount: refundRequests?.pendingCount || 0,
+        pendingAmount: toNumber(refundRequests?.pendingAmount),
+        approvedCount: refundDecisions?.approvedCount || 0,
+        approvedAmount: toNumber(refundDecisions?.approvedAmount),
+        rejectedCount: refundDecisions?.rejectedCount || 0,
       },
       payouts: {
         requestCount: payoutRequests?.count || 0,
@@ -230,6 +273,13 @@ export async function getAdminAnalytics(input = {}) {
     totals.fundingRequestedAmount += bucket.funding.requestedAmount;
     totals.fundingPendingCount += bucket.funding.pendingCount;
     totals.fundingPendingAmount += bucket.funding.pendingAmount;
+    totals.refundRequestedCount += bucket.refunds.requestedCount;
+    totals.refundRequestedAmount += bucket.refunds.requestedAmount;
+    totals.refundPendingCount += bucket.refunds.pendingCount;
+    totals.refundPendingAmount += bucket.refunds.pendingAmount;
+    totals.refundApprovedCount += bucket.refunds.approvedCount;
+    totals.refundApprovedAmount += bucket.refunds.approvedAmount;
+    totals.refundRejectedCount += bucket.refunds.rejectedCount;
     totals.payoutRequestCount += bucket.payouts.requestCount;
     totals.payoutRequestedAmount += bucket.payouts.requestedAmount;
     totals.payoutPaidCount += bucket.payouts.paidCount;
@@ -245,6 +295,13 @@ export async function getAdminAnalytics(input = {}) {
     fundingRequestedAmount: 0,
     fundingPendingCount: 0,
     fundingPendingAmount: 0,
+    refundRequestedCount: 0,
+    refundRequestedAmount: 0,
+    refundPendingCount: 0,
+    refundPendingAmount: 0,
+    refundApprovedCount: 0,
+    refundApprovedAmount: 0,
+    refundRejectedCount: 0,
     payoutRequestCount: 0,
     payoutRequestedAmount: 0,
     payoutPaidCount: 0,
@@ -261,6 +318,7 @@ export async function getAdminAnalytics(input = {}) {
     series,
     notes: {
       fundingTransferred: "Funding is counted when a funder confirms the transfer.",
+      refundApproved: "A refund is counted when a funder approves the refund request.",
       payoutPaid: "Admin approval marks a payout as transferred.",
     },
   };
@@ -293,6 +351,11 @@ export async function listAdminAnalyticsRecords(input = {}) {
           lastStatusChangedAt: true,
           completedAt: true,
           work: { select: { id: true, status: true, submittedAt: true, approvedAt: true, updatedAt: true } },
+          reports: {
+            orderBy: { requestedAt: "desc" },
+            take: 1,
+            select: { id: true, reason: true, status: true, requestedAt: true, processedAt: true, funderNote: true },
+          },
         },
       }),
       prisma.fundingRequest.count({ where }),

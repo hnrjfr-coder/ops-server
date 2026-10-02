@@ -39,3 +39,13 @@ authRouter.post("/login", async (request, response, next) => {
     next(error);
   }
 });
+
+authRouter.get("/me", requireAccountType("EMPLOYEE", "SUPERVISOR", "FUNDER", "ADMIN"), async (request, response, next) => {
+  try {
+    if (!request.authUser) return response.status(401).json({ error: "Authentication required." });
+    const { passwordHash: _passwordHash, ...user } = request.authUser;
+    response.json({ user });
+  } catch (error) {
+    next(error);
+  }
+});

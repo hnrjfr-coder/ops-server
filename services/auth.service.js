@@ -27,6 +27,10 @@ const isValidAccountSetupValue = (field, value) => {
 const accountSetupInput = (input) =>
   Object.fromEntries(accountSetupFields.map((field) => [field, String(input[field] ?? "").trim()]));
 
+export function getInitialAccountStatus(accountType) {
+  return String(accountType || "").toUpperCase() === "EMPLOYEE" ? "PENDING_ADMIN_APPROVAL" : "ACTIVE";
+}
+
 export async function registerUser(input) {
   const name = String(input.name || "").trim();
   const phone = String(input.phone || "").trim();
@@ -115,6 +119,7 @@ export async function registerUser(input) {
         supervisor: accountType === "EMPLOYEE" ? supervisor : null,
         funder: accountType === "SUPERVISOR" ? funder : null,
         accountType,
+        status: getInitialAccountStatus(accountType),
         ...accountSetup,
       },
     });
@@ -138,6 +143,7 @@ export async function registerUser(input) {
         funderId: accountType === "SUPERVISOR" ? funder : null,
         supervisor: accountType === "EMPLOYEE" ? supervisor : null,
         accountType,
+        status: getInitialAccountStatus(accountType),
         ...accountSetup,
       },
     });
