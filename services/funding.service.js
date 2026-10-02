@@ -25,6 +25,14 @@ export const requestsSinceCompletedBatch = (requests) => {
 export const hasUnsubmittedApprovedFundingRequest = (requests) =>
   requests.some((request) => request.status === "APPROVED" && !request.work);
 
+export function getFundingRequestBlockReason(requests) {
+  if (requests.some((request) => request.status === "PENDING_FUNDER_APPROVAL")) {
+    return "AWAITING_FUNDER_APPROVAL";
+  }
+  if (hasUnsubmittedApprovedFundingRequest(requests)) return "AWAITING_WORK_SUBMISSION";
+  return null;
+}
+
 const resolveFixedAmount = (accountName, accountCategory) => {
   const normalizedAccountName = String(accountName || "").trim().toUpperCase();
   const normalizedAccountCategory = String(accountCategory || "").trim().toUpperCase();
@@ -111,6 +119,7 @@ export async function createFundingRequest(employeeId, input) {
   const { accountName, accountCategory, amount } = resolveFixedAmount(selectedAccountName, selectedAccountCategory);
 
   return prisma.$transaction(async (transaction) => {
+  await transaction.$queryRaw`SELECT "id" FROM "ops"."User" WHERE "id" = ${employeeId} FOR UPDATE`;
   const employee = await transaction.user.findUnique({
     where: { id: employeeId },
     select: {
@@ -149,8 +158,12 @@ export async function createFundingRequest(employeeId, input) {
     orderBy: { requestedAt: "desc" },
     select: { status: true, work: { select: { id: true } } },
   });
-  if (hasUnsubmittedApprovedFundingRequest(fundingCycleRequests)) {
-    const error = new Error("Submit work for your approved funding request before requesting more funding.");
+  const requestBlockReason = getFundingRequestBlockReason(fundingCycleRequests);
+  if (requestBlockReason) {
+    const message = requestBlockReason === "AWAITING_FUNDER_APPROVAL"
+      ? "Wait for your current funding request to be approved before requesting more. Submit work for it before requesting again."
+      : "Submit work for your approved funding request before requesting more funding. Supervisor approval is not required to request the next funding.";
+    const error = new Error(message);
     error.statusCode = 409;
     throw error;
   }
@@ -233,13 +246,21 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
     select: { status: true, work: { select: { id: true } } },
   });
   const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
+  const fundingRequestBlockReason = getFundingRequestBlockReason(fundingCycleRequests);
   const fundingRequestAwaitingWork = hasUnsubmittedApprovedFundingRequest(fundingCycleRequests);
+  const fundingRequestAwaitingFunderApproval = fundingCycleRequests.some(
+    (request) => request.status === "PENDING_FUNDER_APPROVAL",
+  );
+  const fundingRequestCycleLimitReached = fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE;
   return {
     ...summary,
     maxFundingRequestsPerCycle: MAX_FUNDING_REQUESTS_PER_CYCLE,
     fundingCycleRequestCount,
     fundingRequestAwaitingWork,
-    fundingRequestBlocked: fundingRequestAwaitingWork || fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE,
+    fundingRequestAwaitingFunderApproval,
+    fundingRequestCycleLimitReached,
+    fundingRequestBlockReason,
+    fundingRequestBlocked: Boolean(fundingRequestBlockReason) || fundingRequestCycleLimitReached,
   };
 }
 

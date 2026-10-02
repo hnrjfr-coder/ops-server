@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getFundingDateRange,
+  getFundingRequestBlockReason,
   hasUnsubmittedApprovedFundingRequest,
   requestsSinceCompletedBatch,
 } from "./funding.service.js";
@@ -55,6 +56,29 @@ test("approved funding blocks another request until work is submitted", () => {
   assert.equal(hasUnsubmittedApprovedFundingRequest([{ status: "APPROVED" }]), true);
 });
 
+test("pending funder approval blocks another funding request", () => {
+  assert.equal(
+    getFundingRequestBlockReason([{ status: "PENDING_FUNDER_APPROVAL", work: null }]),
+    "AWAITING_FUNDER_APPROVAL",
+  );
+});
+
+test("approved funding blocks another request until work is submitted", () => {
+  assert.equal(
+    getFundingRequestBlockReason([{ status: "APPROVED", work: null }]),
+    "AWAITING_WORK_SUBMISSION",
+  );
+});
+
+test("submitted work clears the one-request gate before supervisor review", () => {
+  assert.equal(
+    getFundingRequestBlockReason([
+      { status: "UNDER_SUPERVISOR_REVIEW", work: { id: "work-1" } },
+    ]),
+    null,
+  );
+});
+
 test("submitted work unlocks the next request before supervisor approval", () => {
   assert.equal(
     hasUnsubmittedApprovedFundingRequest([
@@ -70,14 +94,13 @@ test("submitted work unlocks the next request before supervisor approval", () =>
   );
 });
 
-test("pending or rejected funding does not trigger the submission gate", () => {
+test("rejected funding does not trigger the one-request gate", () => {
   assert.equal(
-    hasUnsubmittedApprovedFundingRequest([
-      { status: "PENDING_FUNDER_APPROVAL", work: null },
+    getFundingRequestBlockReason([
       { status: "FUNDER_REJECTED", work: null },
       { status: "SUPERVISOR_REJECTED", work: null },
     ]),
-    false,
+    null,
   );
 });
 
