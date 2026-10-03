@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+import { getActiveApprovedFundingWhere } from "./funding.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const periods = {
@@ -96,7 +97,7 @@ function indexRows(rows) {
 }
 
 async function getCurrentSnapshot() {
-  const [employeeCount, activeEmployeeCount, pendingFunding, pendingPayouts, pendingRefunds] = await Promise.all([
+  const [employeeCount, activeEmployeeCount, pendingFunding, pendingPayouts, pendingRefunds, activeApprovedFunding] = await Promise.all([
     prisma.user.count({ where: { accountType: "EMPLOYEE" } }),
     prisma.user.count({ where: { accountType: "EMPLOYEE", status: "ACTIVE" } }),
     prisma.fundingRequest.aggregate({
@@ -114,6 +115,11 @@ async function getCurrentSnapshot() {
       _count: { _all: true },
       _sum: { amount: true },
     }),
+    prisma.fundingRequest.aggregate({
+      where: getActiveApprovedFundingWhere(),
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
   ]);
 
   return {
@@ -121,6 +127,8 @@ async function getCurrentSnapshot() {
     funding: {
       pendingCount: pendingFunding._count._all,
       pendingAmount: pendingFunding._sum.amount || 0,
+      approvedCount: activeApprovedFunding._count._all,
+      approvedAmount: activeApprovedFunding._sum.amount || 0,
     },
     payouts: {
       pendingCount: pendingPayouts._count._all,

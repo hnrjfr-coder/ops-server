@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getFundingDateRange,
+  getActiveApprovedFundingWhere,
   getConfirmedFundingPeriodWhere,
   getFundingRequestBlockReason,
   hasUnsubmittedApprovedFundingRequest,
@@ -10,6 +11,7 @@ import {
 import { sumPaidPayoutAmounts } from "./payout.service.js";
 import { normalizeFundingReportReason } from "./funding-report.service.js";
 import { getInitialAccountStatus } from "./auth.service.js";
+import { isFundingRequestEligibleForWork } from "./work.service.js";
 
 const statuses = (...values) => values.map((status) => ({ status }));
 
@@ -160,4 +162,21 @@ test("new employees require admin approval while other account types stay active
   assert.equal(getInitialAccountStatus("EMPLOYEE"), "PENDING_ADMIN_APPROVAL");
   assert.equal(getInitialAccountStatus("SUPERVISOR"), "ACTIVE");
   assert.equal(getInitialAccountStatus("FUNDER"), "ACTIVE");
+});
+
+test("reported or refunded funding is not eligible for work submission", () => {
+  assert.equal(isFundingRequestEligibleForWork({ status: "APPROVED", work: null, reports: [] }), true);
+  assert.equal(isFundingRequestEligibleForWork({ status: "APPROVED", work: null, reports: [{ id: "report-1" }] }), false);
+  assert.equal(isFundingRequestEligibleForWork({ status: "APPROVED", work: null, refunds: [{ id: "refund-1", status: "REJECTED" }] }), false);
+  assert.equal(isFundingRequestEligibleForWork({ status: "REFUNDED", work: null, reports: [] }), false);
+  assert.equal(isFundingRequestEligibleForWork({ status: "REFUND_PENDING", work: null, reports: [] }), false);
+});
+
+test("approved funding totals exclude all reported or refunded requests", () => {
+  assert.deepEqual(getActiveApprovedFundingWhere({ employeeId: "employee-1" }), {
+    employeeId: "employee-1",
+    status: "APPROVED",
+    reports: { none: {} },
+    refunds: { none: {} },
+  });
 });

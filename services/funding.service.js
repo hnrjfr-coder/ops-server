@@ -101,6 +101,15 @@ export function getFundingDateRange(input = {}) {
   return { from, to, start, endExclusive };
 }
 
+export function getActiveApprovedFundingWhere(where = {}) {
+  return {
+    ...where,
+    status: "APPROVED",
+    reports: { none: {} },
+    refunds: { none: {} },
+  };
+}
+
 export function getConfirmedFundingPeriodWhere(funderId, dateRange) {
   return {
     funderId,
@@ -109,16 +118,29 @@ export function getConfirmedFundingPeriodWhere(funderId, dateRange) {
 }
 
 async function fundingSummary(where) {
-  const groups = await prisma.fundingRequest.groupBy({
-    by: ["status"],
-    where,
-    _count: { _all: true },
-    _sum: { amount: true },
-  });
-  return Object.fromEntries(groups.map((group) => [group.status, {
+  const [groups, approved] = await Promise.all([
+    prisma.fundingRequest.groupBy({
+      by: ["status"],
+      where: { ...where, status: { not: "APPROVED" } },
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
+    prisma.fundingRequest.aggregate({
+      where: getActiveApprovedFundingWhere(where),
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
+  ]);
+  return {
+    ...Object.fromEntries(groups.map((group) => [group.status, {
     count: group._count._all,
     amount: group._sum.amount || 0,
-  }]));
+    }])),
+    APPROVED: {
+      count: approved._count._all,
+      amount: approved._sum.amount || 0,
+    },
+  };
 }
 
 export async function createFundingRequest(employeeId, input) {

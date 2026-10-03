@@ -1,6 +1,9 @@
 import { prisma } from "../lib/prisma.js";
 import { getFundingDateRange } from "./funding.service.js";
 
+export const isFundingRequestEligibleForWork = (request) =>
+  request?.status === "APPROVED" && !request.work && !request.reports?.length && !request.refunds?.length;
+
 const paginationFor = (input = {}) => {
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
   const pageSize = Math.min(20, Math.max(1, Number.parseInt(input.pageSize, 10) || 10));
@@ -25,12 +28,22 @@ export async function createWorkSubmission(input) {
       error.statusCode = 404;
       throw error;
     }
+    await transaction.$queryRaw`SELECT "id" FROM "ops"."FundingRequest" WHERE "id" = ${fundingRequestId} FOR UPDATE`;
     const fundingRequest = await transaction.fundingRequest.findFirst({
-      where: { id: fundingRequestId, employeeId, status: "APPROVED", work: null },
-      include: { supervisor: { select: { id: true, status: true, accountType: true } } },
+      where: { id: fundingRequestId, employeeId, status: "APPROVED", work: null, reports: { none: {} }, refunds: { none: {} } },
+      include: {
+        supervisor: { select: { id: true, status: true, accountType: true } },
+        reports: { select: { id: true }, take: 1 },
+        refunds: { select: { id: true }, take: 1 },
+      },
     });
     if (!fundingRequest) {
-      const error = new Error("An approved funding request available for work submission was not found.");
+      const error = new Error("This funding is no longer eligible for work submission. Reported, refunded, or already-used funding cannot be selected.");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (!isFundingRequestEligibleForWork(fundingRequest)) {
+      const error = new Error("This funding is no longer eligible for work submission.");
       error.statusCode = 409;
       throw error;
     }
@@ -49,7 +62,7 @@ export async function createWorkSubmission(input) {
 
     const submittedAt = new Date();
     const claimedRequest = await transaction.fundingRequest.updateMany({
-      where: { id: fundingRequestId, employeeId, status: "APPROVED" },
+      where: { id: fundingRequestId, employeeId, status: "APPROVED", reports: { none: {} }, refunds: { none: {} } },
       data: { status: "UNDER_SUPERVISOR_REVIEW", lastStatusChangedAt: submittedAt },
     });
     if (claimedRequest.count !== 1) {
