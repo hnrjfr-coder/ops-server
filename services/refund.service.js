@@ -168,7 +168,7 @@ export async function listEmployeeRefundRequests(employeeId, input = {}) {
 export async function listFunderRefundRequests(funderId, input = {}) {
   const { page, pageSize, skip } = pageArgs(input);
   const where = { funderId };
-  const [items, total] = await Promise.all([
+  const [items, total, pendingCount] = await Promise.all([
     prisma.refundRequest.findMany({
       where,
       include: {
@@ -180,8 +180,9 @@ export async function listFunderRefundRequests(funderId, input = {}) {
       take: pageSize,
     }),
     prisma.refundRequest.count({ where }),
+    prisma.refundRequest.count({ where: { funderId, status: "PENDING_FUNDER_APPROVAL" } }),
   ]);
-  return { items, pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) } };
+  return { items, pendingCount, pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) } };
 }
 
 export async function decideRefundRequest(funderId, refundId, decision, funderNote = "") {
