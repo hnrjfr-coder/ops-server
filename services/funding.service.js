@@ -10,9 +10,13 @@ const fixedFundingAmounts = {
   NEILA: { SUBSCRIPTION: 35000, RENEWAL: 42000 },
 };
 const MAX_FUNDING_REQUESTS_PER_CYCLE = 4;
+const hasRefundOrReport = (request) => Boolean(request.refunds?.length || request.reports?.length);
 
 export const requestsSinceCompletedBatch = (requests) => {
-  const cycleRequests = requests.filter((request) => !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUND_PENDING", "REFUNDED"].includes(request.status));
+  const cycleRequests = requests.filter((request) =>
+    !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUND_PENDING", "REFUNDED"].includes(request.status) &&
+    !hasRefundOrReport(request),
+  );
   for (let index = 0; index <= cycleRequests.length - MAX_FUNDING_REQUESTS_PER_CYCLE; index += 1) {
     const isCompletedBatch = cycleRequests
       .slice(index, index + MAX_FUNDING_REQUESTS_PER_CYCLE)
@@ -23,10 +27,13 @@ export const requestsSinceCompletedBatch = (requests) => {
 };
 
 export const hasUnsubmittedApprovedFundingRequest = (requests) =>
-  requests.some((request) => request.status === "APPROVED" && !request.work);
+  requests.some((request) => request.status === "APPROVED" && !request.work && !hasRefundOrReport(request));
 
 export function getFundingRequestBlockReason(requests) {
-  const activeRequests = requests.filter((request) => !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUND_PENDING", "REFUNDED"].includes(request.status));
+  const activeRequests = requests.filter((request) =>
+    !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUND_PENDING", "REFUNDED"].includes(request.status) &&
+    !hasRefundOrReport(request),
+  );
   if (activeRequests.some((request) => request.status === "PENDING_FUNDER_APPROVAL")) {
     return "AWAITING_FUNDER_APPROVAL";
   }
@@ -186,7 +193,12 @@ export async function createFundingRequest(employeeId, input) {
   const fundingCycleRequests = await transaction.fundingRequest.findMany({
     where: { employeeId },
     orderBy: { requestedAt: "desc" },
-    select: { status: true, work: { select: { id: true } } },
+    select: {
+      status: true,
+      work: { select: { id: true } },
+      reports: { select: { id: true }, take: 1 },
+      refunds: { select: { id: true }, take: 1 },
+    },
   });
   const requestBlockReason = getFundingRequestBlockReason(fundingCycleRequests);
   if (requestBlockReason) {
@@ -199,7 +211,7 @@ export async function createFundingRequest(employeeId, input) {
   }
   const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
   if (fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE) {
-    const error = new Error(`You have reached the limit of ${MAX_FUNDING_REQUESTS_PER_CYCLE} active funding requests in this cycle. Complete and receive supervisor approval for all four requests before requesting more funding. Funder- or supervisor-rejected requests release their slot.`);
+    const error = new Error(`You have reached the limit of ${MAX_FUNDING_REQUESTS_PER_CYCLE} active funding requests in this cycle. Complete all four requests before requesting more. Rejected funding, refunds, and use-of-funds reports release a slot.`);
     error.statusCode = 409;
     throw error;
   }
@@ -283,7 +295,12 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
   const fundingCycleRequests = await prisma.fundingRequest.findMany({
     where: { employeeId },
     orderBy: { requestedAt: "desc" },
-    select: { status: true, work: { select: { id: true } } },
+    select: {
+      status: true,
+      work: { select: { id: true } },
+      reports: { select: { id: true }, take: 1 },
+      refunds: { select: { id: true }, take: 1 },
+    },
   });
   const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
   const fundingRequestBlockReason = getFundingRequestBlockReason(fundingCycleRequests);

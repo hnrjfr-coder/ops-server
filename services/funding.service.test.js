@@ -180,3 +180,19 @@ test("approved funding totals exclude all reported or refunded requests", () => 
     refunds: { none: {} },
   });
 });
+
+test("refund or report history releases a cycle slot regardless of decision status", () => {
+  const activeRequests = [
+    { status: "APPROVED" },
+    { status: "PENDING_FUNDER_APPROVAL" },
+    { status: "APPROVED", refunds: [{ status: "REJECTED" }] },
+    { status: "APPROVED", reports: [{ status: "PENDING_FUNDER_APPROVAL" }] },
+    { status: "APPROVED", reports: [{ status: "APPROVED" }] },
+  ];
+  assert.equal(requestsSinceCompletedBatch(activeRequests), 2);
+  assert.equal(getFundingRequestBlockReason(activeRequests), "AWAITING_FUNDER_APPROVAL");
+  assert.equal(getFundingRequestBlockReason([
+    { status: "APPROVED", refunds: [{ status: "REJECTED" }] },
+    { status: "APPROVED", reports: [{ status: "REJECTED" }] },
+  ]), null);
+});
