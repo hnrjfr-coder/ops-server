@@ -338,6 +338,16 @@ export async function listFunderFundingRequests(funderId, input = {}) {
         } },
         supervisor: { select: { id: true, name: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
+        refunds: {
+          orderBy: { requestedAt: "desc" },
+          take: 1,
+          select: { id: true, status: true, requestedAt: true, employeeConfirmedAt: true, paymentReference: true, funderNote: true },
+        },
+        reports: {
+          orderBy: { requestedAt: "desc" },
+          take: 1,
+          select: { id: true, status: true, requestedAt: true, processedAt: true, reason: true, funderNote: true },
+        },
       },
       orderBy: { requestedAt: "desc" },
       skip,
