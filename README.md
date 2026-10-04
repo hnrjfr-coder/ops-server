@@ -267,3 +267,9 @@ registration creates the account in Supabase Auth and mirrors the profile in
 Prisma. The secret key must stay server-side and must never be added to the
 frontend or committed to git. Without those variables, local development uses
 the existing Prisma fallback.
+
+## Local test accounts
+
+Test-account credentials are stored in the git-ignored
+`test-logins.local.md` file. Keep passwords out of this tracked README and
+never use test accounts for real users.

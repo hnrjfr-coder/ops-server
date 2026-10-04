@@ -153,8 +153,8 @@ export async function getAdminAnalytics(input = {}) {
   const payoutDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const refundRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const refundDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const reportRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const reportDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const reportRequestBucket = Prisma.sql`to_char(date_trunc(${period}, report."requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const reportDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, report."processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const workBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const employeeBucket = Prisma.sql`to_char(date_trunc(${period}, "createdAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
 
