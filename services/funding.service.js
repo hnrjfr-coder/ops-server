@@ -128,6 +128,13 @@ export function getActiveApprovedFundingWhere(where = {}) {
   };
 }
 
+export function getConfirmedFundingWhere(where = {}) {
+  return {
+    ...where,
+    approvedAt: { not: null },
+  };
+}
+
 export function getConfirmedFundingPeriodWhere(funderId, dateRange) {
   return {
     funderId,

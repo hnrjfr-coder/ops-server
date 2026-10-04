@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
-import { getActiveApprovedFundingWhere } from "./funding.service.js";
+import { getConfirmedFundingWhere } from "./funding.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const periods = {
@@ -97,7 +97,7 @@ function indexRows(rows) {
 }
 
 async function getCurrentSnapshot() {
-  const [employeeCount, activeEmployeeCount, pendingFunding, pendingPayouts, pendingRefunds, activeApprovedFunding] = await Promise.all([
+  const [employeeCount, activeEmployeeCount, pendingFunding, pendingPayouts, pendingRefunds, confirmedFunding] = await Promise.all([
     prisma.user.count({ where: { accountType: "EMPLOYEE" } }),
     prisma.user.count({ where: { accountType: "EMPLOYEE", status: "ACTIVE" } }),
     prisma.fundingRequest.aggregate({
@@ -116,7 +116,7 @@ async function getCurrentSnapshot() {
       _sum: { amount: true },
     }),
     prisma.fundingRequest.aggregate({
-      where: getActiveApprovedFundingWhere(),
+      where: getConfirmedFundingWhere(),
       _count: { _all: true },
       _sum: { amount: true },
     }),
@@ -127,8 +127,8 @@ async function getCurrentSnapshot() {
     funding: {
       pendingCount: pendingFunding._count._all,
       pendingAmount: pendingFunding._sum.amount || 0,
-      approvedCount: activeApprovedFunding._count._all,
-      approvedAmount: activeApprovedFunding._sum.amount || 0,
+      approvedCount: confirmedFunding._count._all,
+      approvedAmount: confirmedFunding._sum.amount || 0,
     },
     payouts: {
       pendingCount: pendingPayouts._count._all,
@@ -153,10 +153,12 @@ export async function getAdminAnalytics(input = {}) {
   const payoutDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const refundRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const refundDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const reportRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const reportDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const workBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const employeeBucket = Prisma.sql`to_char(date_trunc(${period}, "createdAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
 
-  const [current, fundingRows, fundingRequestRows, payoutRequestRows, payoutDecisionRows, refundRequestRows, refundDecisionRows, workRows, employeeRows] = await Promise.all([
+  const [current, fundingRows, fundingRequestRows, payoutRequestRows, payoutDecisionRows, refundRequestRows, refundDecisionRows, reportRequestRows, reportDecisionRows, workRows, employeeRows] = await Promise.all([
     getCurrentSnapshot(),
     prisma.$queryRaw`
       SELECT ${fundingBucket} AS bucket,
@@ -213,6 +215,28 @@ export async function getAdminAnalytics(input = {}) {
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
+      SELECT ${reportRequestBucket} AS bucket,
+        COUNT(*)::int AS "requestedCount",
+        COALESCE(SUM(funding."amount"), 0)::float8 AS "requestedAmount",
+        COUNT(*) FILTER (WHERE report."status" = 'PENDING_FUNDER_APPROVAL')::int AS "pendingCount",
+        COALESCE(SUM(funding."amount") FILTER (WHERE report."status" = 'PENDING_FUNDER_APPROVAL'), 0)::float8 AS "pendingAmount"
+      FROM "ops"."FundingReport" AS report
+      JOIN "ops"."FundingRequest" AS funding ON funding."id" = report."fundingRequestId"
+      WHERE report."requestedAt" >= ${from} AND report."requestedAt" < ${endExclusive}
+      GROUP BY 1 ORDER BY 1
+    `,
+    prisma.$queryRaw`
+      SELECT ${reportDecisionBucket} AS bucket,
+        COUNT(*) FILTER (WHERE report."status" = 'APPROVED')::int AS "approvedCount",
+        COALESCE(SUM(funding."amount") FILTER (WHERE report."status" = 'APPROVED'), 0)::float8 AS "approvedAmount",
+        COUNT(*) FILTER (WHERE report."status" = 'REJECTED')::int AS "rejectedCount",
+        COALESCE(SUM(funding."amount") FILTER (WHERE report."status" = 'REJECTED'), 0)::float8 AS "rejectedAmount"
+      FROM "ops"."FundingReport" AS report
+      JOIN "ops"."FundingRequest" AS funding ON funding."id" = report."fundingRequestId"
+      WHERE report."processedAt" >= ${from} AND report."processedAt" < ${endExclusive}
+      GROUP BY 1 ORDER BY 1
+    `,
+    prisma.$queryRaw`
       SELECT ${workBucket} AS bucket, COUNT(*)::int AS count
       FROM "ops"."WorkSubmission"
       WHERE "status" = 'COMPLETED' AND "approvedAt" >= ${from} AND "approvedAt" < ${endExclusive}
@@ -232,6 +256,8 @@ export async function getAdminAnalytics(input = {}) {
   const payoutDecisionsByBucket = indexRows(payoutDecisionRows);
   const refundRequestsByBucket = indexRows(refundRequestRows);
   const refundDecisionsByBucket = indexRows(refundDecisionRows);
+  const reportRequestsByBucket = indexRows(reportRequestRows);
+  const reportDecisionsByBucket = indexRows(reportDecisionRows);
   const worksByBucket = indexRows(workRows);
   const employeesByBucket = indexRows(employeeRows);
   const series = createBuckets(from, to, period).map((bucket) => {
@@ -241,6 +267,8 @@ export async function getAdminAnalytics(input = {}) {
     const payoutDecisions = payoutDecisionsByBucket.get(bucket);
     const refundRequests = refundRequestsByBucket.get(bucket);
     const refundDecisions = refundDecisionsByBucket.get(bucket);
+    const reportRequests = reportRequestsByBucket.get(bucket);
+    const reportDecisions = reportDecisionsByBucket.get(bucket);
     const works = worksByBucket.get(bucket);
     const employees = employeesByBucket.get(bucket);
     return {
@@ -261,6 +289,16 @@ export async function getAdminAnalytics(input = {}) {
         approvedCount: refundDecisions?.approvedCount || 0,
         approvedAmount: toNumber(refundDecisions?.approvedAmount),
         rejectedCount: refundDecisions?.rejectedCount || 0,
+      },
+      reports: {
+        requestedCount: reportRequests?.requestedCount || 0,
+        requestedAmount: toNumber(reportRequests?.requestedAmount),
+        pendingCount: reportRequests?.pendingCount || 0,
+        pendingAmount: toNumber(reportRequests?.pendingAmount),
+        approvedCount: reportDecisions?.approvedCount || 0,
+        approvedAmount: toNumber(reportDecisions?.approvedAmount),
+        rejectedCount: reportDecisions?.rejectedCount || 0,
+        rejectedAmount: toNumber(reportDecisions?.rejectedAmount),
       },
       payouts: {
         requestCount: payoutRequests?.count || 0,
@@ -288,6 +326,14 @@ export async function getAdminAnalytics(input = {}) {
     totals.refundApprovedCount += bucket.refunds.approvedCount;
     totals.refundApprovedAmount += bucket.refunds.approvedAmount;
     totals.refundRejectedCount += bucket.refunds.rejectedCount;
+    totals.reportRequestedCount += bucket.reports.requestedCount;
+    totals.reportRequestedAmount += bucket.reports.requestedAmount;
+    totals.reportPendingCount += bucket.reports.pendingCount;
+    totals.reportPendingAmount += bucket.reports.pendingAmount;
+    totals.reportApprovedCount += bucket.reports.approvedCount;
+    totals.reportApprovedAmount += bucket.reports.approvedAmount;
+    totals.reportRejectedCount += bucket.reports.rejectedCount;
+    totals.reportRejectedAmount += bucket.reports.rejectedAmount;
     totals.payoutRequestCount += bucket.payouts.requestCount;
     totals.payoutRequestedAmount += bucket.payouts.requestedAmount;
     totals.payoutPaidCount += bucket.payouts.paidCount;
@@ -310,6 +356,14 @@ export async function getAdminAnalytics(input = {}) {
     refundApprovedCount: 0,
     refundApprovedAmount: 0,
     refundRejectedCount: 0,
+    reportRequestedCount: 0,
+    reportRequestedAmount: 0,
+    reportPendingCount: 0,
+    reportPendingAmount: 0,
+    reportApprovedCount: 0,
+    reportApprovedAmount: 0,
+    reportRejectedCount: 0,
+    reportRejectedAmount: 0,
     payoutRequestCount: 0,
     payoutRequestedAmount: 0,
     payoutPaidCount: 0,
@@ -327,6 +381,7 @@ export async function getAdminAnalytics(input = {}) {
     notes: {
       fundingTransferred: "Funding is counted when a funder confirms the transfer.",
       refundApproved: "A refund is counted when a funder approves the refund request.",
+      reportSubmitted: "A reported amount is the amount of its linked funding request; reports are tracked separately from funding transfers.",
       payoutPaid: "Admin approval marks a payout as transferred.",
     },
   };

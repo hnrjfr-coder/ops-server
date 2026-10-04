@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   getFundingDateRange,
   getActiveApprovedFundingWhere,
+  getConfirmedFundingWhere,
   getConfirmedFundingPeriodWhere,
   getFundingRequestBlockReason,
   hasUnsubmittedApprovedFundingRequest,
@@ -172,12 +173,19 @@ test("reported or refunded funding is not eligible for work submission", () => {
   assert.equal(isFundingRequestEligibleForWork({ status: "REFUND_PENDING", work: null, reports: [] }), false);
 });
 
-test("approved funding totals exclude all reported or refunded requests", () => {
+test("active approved funding summary excludes all reported or refunded requests", () => {
   assert.deepEqual(getActiveApprovedFundingWhere({ employeeId: "employee-1" }), {
     employeeId: "employee-1",
     status: "APPROVED",
     reports: { none: {} },
     refunds: { none: {} },
+  });
+});
+
+test("confirmed funding totals retain approvals regardless of later reports or refunds", () => {
+  assert.deepEqual(getConfirmedFundingWhere({ funderId: "funder-1" }), {
+    funderId: "funder-1",
+    approvedAt: { not: null },
   });
 });
 
