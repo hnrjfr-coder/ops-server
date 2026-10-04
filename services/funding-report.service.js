@@ -75,7 +75,7 @@ export async function listEmployeeFundingReports(employeeId, input = {}) {
 export async function listFunderFundingReports(funderId, input = {}) {
   const { page, pageSize, skip } = pageArgs(input);
   const where = { funderId };
-  const [items, total] = await Promise.all([
+  const [items, total, pendingCount] = await Promise.all([
     prisma.fundingReport.findMany({
       where,
       include: {
@@ -87,8 +87,9 @@ export async function listFunderFundingReports(funderId, input = {}) {
       take: pageSize,
     }),
     prisma.fundingReport.count({ where }),
+    prisma.fundingReport.count({ where: { funderId, status: "PENDING_FUNDER_APPROVAL" } }),
   ]);
-  return { items, pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) } };
+  return { items, pendingCount, pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) } };
 }
 
 export async function decideFundingReport(funderId, reportId, decision, funderNote = "") {

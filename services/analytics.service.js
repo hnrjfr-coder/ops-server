@@ -364,6 +364,11 @@ export async function listAdminAnalyticsRecords(input = {}) {
             take: 1,
             select: { id: true, reason: true, status: true, requestedAt: true, processedAt: true, funderNote: true },
           },
+          refunds: {
+            orderBy: { requestedAt: "desc" },
+            take: 1,
+            select: { id: true, status: true, requestedAt: true, processedAt: true },
+          },
         },
       }),
       prisma.fundingRequest.count({ where }),

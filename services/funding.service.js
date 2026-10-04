@@ -10,12 +10,17 @@ const fixedFundingAmounts = {
   NEILA: { SUBSCRIPTION: 35000, RENEWAL: 42000 },
 };
 const MAX_FUNDING_REQUESTS_PER_CYCLE = 4;
-const hasRefundOrReport = (request) => Boolean(request.refunds?.length || request.reports?.length);
+const hasPendingRefundOrReport = (request) =>
+  [...(request.refunds || []), ...(request.reports || [])]
+    .some((activity) => activity.status === "PENDING_FUNDER_APPROVAL");
+const hasDecidedRefundOrReport = (request) =>
+  [...(request.refunds || []), ...(request.reports || [])]
+    .some((activity) => ["APPROVED", "REJECTED"].includes(activity.status));
 
 export const requestsSinceCompletedBatch = (requests) => {
   const cycleRequests = requests.filter((request) =>
-    !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUND_PENDING", "REFUNDED"].includes(request.status) &&
-    !hasRefundOrReport(request),
+    !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUNDED"].includes(request.status) &&
+    !hasDecidedRefundOrReport(request),
   );
   for (let index = 0; index <= cycleRequests.length - MAX_FUNDING_REQUESTS_PER_CYCLE; index += 1) {
     const isCompletedBatch = cycleRequests
@@ -27,15 +32,21 @@ export const requestsSinceCompletedBatch = (requests) => {
 };
 
 export const hasUnsubmittedApprovedFundingRequest = (requests) =>
-  requests.some((request) => request.status === "APPROVED" && !request.work && !hasRefundOrReport(request));
+  requests.some((request) =>
+    request.status === "APPROVED" && !request.work &&
+    !hasPendingRefundOrReport(request) && !hasDecidedRefundOrReport(request),
+  );
 
 export function getFundingRequestBlockReason(requests) {
   const activeRequests = requests.filter((request) =>
-    !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUND_PENDING", "REFUNDED"].includes(request.status) &&
-    !hasRefundOrReport(request),
+    !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUNDED"].includes(request.status) &&
+    !hasDecidedRefundOrReport(request),
   );
   if (activeRequests.some((request) => request.status === "PENDING_FUNDER_APPROVAL")) {
     return "AWAITING_FUNDER_APPROVAL";
+  }
+  if (activeRequests.some((request) => hasPendingRefundOrReport(request) || request.status === "REFUND_PENDING")) {
+    return "AWAITING_REFUND_OR_REPORT_APPROVAL";
   }
   if (hasUnsubmittedApprovedFundingRequest(activeRequests)) return "AWAITING_WORK_SUBMISSION";
   return null;
@@ -196,22 +207,24 @@ export async function createFundingRequest(employeeId, input) {
     select: {
       status: true,
       work: { select: { id: true } },
-      reports: { select: { id: true }, take: 1 },
-      refunds: { select: { id: true }, take: 1 },
+      reports: { orderBy: { requestedAt: "desc" }, select: { id: true, status: true }, take: 1 },
+      refunds: { orderBy: { requestedAt: "desc" }, select: { id: true, status: true }, take: 1 },
     },
   });
   const requestBlockReason = getFundingRequestBlockReason(fundingCycleRequests);
   if (requestBlockReason) {
-    const message = requestBlockReason === "AWAITING_FUNDER_APPROVAL"
-      ? "Wait for your current funding request to be approved before requesting more. Submit work for it before requesting again."
-      : "Submit work for your approved funding request before requesting more funding. Supervisor approval is not required to request the next funding.";
+    const message = requestBlockReason === "AWAITING_REFUND_OR_REPORT_APPROVAL"
+      ? "Wait for the funder to decide your refund or use-of-funds report before requesting more funding."
+      : requestBlockReason === "AWAITING_FUNDER_APPROVAL"
+        ? "Wait for your current funding request to be approved before requesting more. Submit work for it before requesting again."
+        : "Submit work for your approved funding request before requesting more funding. Supervisor approval is not required to request the next funding.";
     const error = new Error(message);
     error.statusCode = 409;
     throw error;
   }
   const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
   if (fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE) {
-    const error = new Error(`You have reached the limit of ${MAX_FUNDING_REQUESTS_PER_CYCLE} active funding requests in this cycle. Complete all four requests before requesting more. Rejected funding, refunds, and use-of-funds reports release a slot.`);
+    const error = new Error(`You have reached the limit of ${MAX_FUNDING_REQUESTS_PER_CYCLE} active funding requests in this cycle. Complete all four requests before requesting more. Refund and report requests release a slot after the funder decides them.`);
     error.statusCode = 409;
     throw error;
   }
@@ -298,13 +311,14 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
     select: {
       status: true,
       work: { select: { id: true } },
-      reports: { select: { id: true }, take: 1 },
-      refunds: { select: { id: true }, take: 1 },
+      reports: { orderBy: { requestedAt: "desc" }, select: { id: true, status: true }, take: 1 },
+      refunds: { orderBy: { requestedAt: "desc" }, select: { id: true, status: true }, take: 1 },
     },
   });
   const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
   const fundingRequestBlockReason = getFundingRequestBlockReason(fundingCycleRequests);
   const fundingRequestAwaitingWork = hasUnsubmittedApprovedFundingRequest(fundingCycleRequests);
+  const fundingRequestAwaitingRefundOrReportApproval = fundingCycleRequests.some(hasPendingRefundOrReport);
   const fundingRequestAwaitingFunderApproval = fundingCycleRequests.some(
     (request) => request.status === "PENDING_FUNDER_APPROVAL",
   );
@@ -314,6 +328,7 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
     maxFundingRequestsPerCycle: MAX_FUNDING_REQUESTS_PER_CYCLE,
     fundingCycleRequestCount,
     fundingRequestAwaitingWork,
+    fundingRequestAwaitingRefundOrReportApproval,
     fundingRequestAwaitingFunderApproval,
     fundingRequestCycleLimitReached,
     fundingRequestBlockReason,
@@ -406,6 +421,16 @@ export async function listSupervisorFundingRequests(supervisorId, input = {}) {
         employee: { select: { id: true, name: true, email: true } },
         funder: { select: { id: true, name: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
+        refunds: {
+          orderBy: { requestedAt: "desc" },
+          take: 1,
+          select: { id: true, status: true, requestedAt: true, processedAt: true },
+        },
+        reports: {
+          orderBy: { requestedAt: "desc" },
+          take: 1,
+          select: { id: true, status: true, requestedAt: true, processedAt: true },
+        },
       },
       orderBy: { requestedAt: "desc" },
       skip,

@@ -31,17 +31,17 @@ test("funder-rejected requests release their cycle slots", () => {
   );
 });
 
-test("approved refunds also release the cycle and do not block a new request", () => {
+test("pending refunds hold a cycle slot until the funder decides", () => {
   assert.equal(
     requestsSinceCompletedBatch(statuses("PENDING_FUNDER_APPROVAL", "APPROVED", "REFUND_PENDING", "REFUNDED", "PENDING_FUNDER_APPROVAL")),
-    3,
+    4,
   );
   assert.equal(
     getFundingRequestBlockReason([
       { status: "REFUND_PENDING", work: null },
       { status: "REFUNDED", work: null },
     ]),
-    null,
+    "AWAITING_REFUND_OR_REPORT_APPROVAL",
   );
 });
 
@@ -181,7 +181,7 @@ test("approved funding totals exclude all reported or refunded requests", () => 
   });
 });
 
-test("refund or report history releases a cycle slot regardless of decision status", () => {
+test("pending refunds or reports block new funding; decisions release their slots", () => {
   const activeRequests = [
     { status: "APPROVED" },
     { status: "PENDING_FUNDER_APPROVAL" },
@@ -189,8 +189,11 @@ test("refund or report history releases a cycle slot regardless of decision stat
     { status: "APPROVED", reports: [{ status: "PENDING_FUNDER_APPROVAL" }] },
     { status: "APPROVED", reports: [{ status: "APPROVED" }] },
   ];
-  assert.equal(requestsSinceCompletedBatch(activeRequests), 2);
+  assert.equal(requestsSinceCompletedBatch(activeRequests), 3);
   assert.equal(getFundingRequestBlockReason(activeRequests), "AWAITING_FUNDER_APPROVAL");
+  assert.equal(getFundingRequestBlockReason([
+    { status: "APPROVED", refunds: [{ status: "PENDING_FUNDER_APPROVAL" }] },
+  ]), "AWAITING_REFUND_OR_REPORT_APPROVAL");
   assert.equal(getFundingRequestBlockReason([
     { status: "APPROVED", refunds: [{ status: "REJECTED" }] },
     { status: "APPROVED", reports: [{ status: "REJECTED" }] },
