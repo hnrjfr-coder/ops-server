@@ -35,6 +35,13 @@ export async function getAdminOverview() {
   };
 }
 
+export async function getAdminSignupNotifications() {
+  const pendingEmployeeSignupCount = await prisma.user.count({
+    where: { accountType: "EMPLOYEE", status: "PENDING_ADMIN_APPROVAL" },
+  });
+  return { pendingEmployeeSignupCount };
+}
+
 export async function listAdminStaff() {
   const [employees, employeeCount, activeEmployeeCount] = await Promise.all([
     prisma.user.findMany({
