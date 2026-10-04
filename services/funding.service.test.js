@@ -5,6 +5,7 @@ import {
   getActiveApprovedFundingWhere,
   getConfirmedFundingWhere,
   getConfirmedFundingPeriodWhere,
+  getFunderOverviewWhere,
   getFundingRequestBlockReason,
   hasUnsubmittedApprovedFundingRequest,
   requestsSinceCompletedBatch,
@@ -186,6 +187,15 @@ test("confirmed funding totals retain approvals regardless of later reports or r
   assert.deepEqual(getConfirmedFundingWhere({ funderId: "funder-1" }), {
     funderId: "funder-1",
     approvedAt: { not: null },
+  });
+});
+
+test("funder overview includes only pending or approved funding without report or refund records", () => {
+  assert.deepEqual(getFunderOverviewWhere("funder-1"), {
+    funderId: "funder-1",
+    status: { in: ["PENDING_FUNDER_APPROVAL", "APPROVED"] },
+    refunds: { none: {} },
+    reports: { none: {} },
   });
 });
 

@@ -135,6 +135,15 @@ export function getConfirmedFundingWhere(where = {}) {
   };
 }
 
+export function getFunderOverviewWhere(funderId) {
+  return {
+    funderId,
+    status: { in: ["PENDING_FUNDER_APPROVAL", "APPROVED"] },
+    refunds: { none: {} },
+    reports: { none: {} },
+  };
+}
+
 export function getConfirmedFundingPeriodWhere(funderId, dateRange) {
   return {
     funderId,
@@ -345,7 +354,7 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
 
 export async function listFunderFundingRequests(funderId, input = {}) {
   const { page, pageSize, skip } = parsePagination(input);
-  const where = { funderId };
+  const where = input.view === "overview" ? getFunderOverviewWhere(funderId) : { funderId };
   const [items, total] = await Promise.all([
     prisma.fundingRequest.findMany({
       where,
