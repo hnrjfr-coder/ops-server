@@ -404,7 +404,7 @@ export async function listAdminAnalyticsRecords(input = {}) {
         take: pageSize,
         select: {
           id: true,
-          employee: { select: { id: true, name: true, email: true } },
+          employee: { select: { id: true, name: true, phone: true } },
           accountName: true,
           accountCategory: true,
           amount: true,
@@ -440,7 +440,7 @@ export async function listAdminAnalyticsRecords(input = {}) {
       take: pageSize,
       select: {
         id: true,
-        employee: { select: { id: true, name: true, email: true } },
+        employee: { select: { id: true, name: true, phone: true } },
         accountName: true,
         accountCategory: true,
         status: true,

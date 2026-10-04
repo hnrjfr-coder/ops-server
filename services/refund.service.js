@@ -172,7 +172,7 @@ export async function listFunderRefundRequests(funderId, input = {}) {
     prisma.refundRequest.findMany({
       where,
       include: {
-        employee: { select: { id: true, name: true, email: true } },
+        employee: { select: { id: true, name: true, phone: true } },
         fundingRequest: { select: { id: true, accountName: true, accountCategory: true, amount: true } },
       },
       orderBy: { requestedAt: "desc" },
@@ -219,7 +219,7 @@ export async function decideRefundRequest(funderId, refundId, decision, funderNo
     return transaction.refundRequest.findUnique({
       where: { id: refundId },
       include: {
-        employee: { select: { id: true, name: true, email: true } },
+        employee: { select: { id: true, name: true, phone: true } },
         fundingRequest: { select: { id: true, accountName: true, accountCategory: true, amount: true, status: true } },
       },
     });

@@ -79,7 +79,7 @@ export async function listFunderFundingReports(funderId, input = {}) {
     prisma.fundingReport.findMany({
       where,
       include: {
-        employee: { select: { id: true, name: true, email: true } },
+        employee: { select: { id: true, name: true, phone: true } },
         fundingRequest: { select: { id: true, accountName: true, accountCategory: true, amount: true, status: true } },
       },
       orderBy: { requestedAt: "desc" },
@@ -109,7 +109,7 @@ export async function decideFundingReport(funderId, reportId, decision, funderNo
   return prisma.fundingReport.findUnique({
     where: { id: reportId },
     include: {
-      employee: { select: { id: true, name: true, email: true } },
+      employee: { select: { id: true, name: true, phone: true } },
       fundingRequest: { select: { id: true, accountName: true, accountCategory: true, amount: true, status: true } },
     },
   });

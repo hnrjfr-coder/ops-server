@@ -190,12 +190,13 @@ test("confirmed funding totals retain approvals regardless of later reports or r
   });
 });
 
-test("funder overview includes only pending or approved funding without report or refund records", () => {
+test("funder overview retains pending and all ever-approved funding records", () => {
   assert.deepEqual(getFunderOverviewWhere("funder-1"), {
     funderId: "funder-1",
-    status: { in: ["PENDING_FUNDER_APPROVAL", "APPROVED"] },
-    refunds: { none: {} },
-    reports: { none: {} },
+    OR: [
+      { status: "PENDING_FUNDER_APPROVAL" },
+      { approvedAt: { not: null } },
+    ],
   });
 });
 

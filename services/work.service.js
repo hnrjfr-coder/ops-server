@@ -209,7 +209,7 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
       employeeId: true,
       supervisorId: true,
       fundingRequestId: true,
-      employee: { select: { id: true, name: true, email: true } },
+      employee: { select: { id: true, name: true, phone: true } },
       payment: true,
       fundingRequest: { select: { id: true, status: true, amount: true, accountName: true, accountCategory: true } },
     },
@@ -330,7 +330,7 @@ export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
         fundingRequestId: true,
         payment: true,
         fundingRequest: true,
-        employee: { select: { id: true, name: true, email: true } },
+        employee: { select: { id: true, name: true, phone: true } },
         supervisor: { select: { id: true, name: true } },
       },
     });

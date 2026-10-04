@@ -138,9 +138,10 @@ export function getConfirmedFundingWhere(where = {}) {
 export function getFunderOverviewWhere(funderId) {
   return {
     funderId,
-    status: { in: ["PENDING_FUNDER_APPROVAL", "APPROVED"] },
-    refunds: { none: {} },
-    reports: { none: {} },
+    OR: [
+      { status: "PENDING_FUNDER_APPROVAL" },
+      { approvedAt: { not: null } },
+    ],
   };
 }
 
@@ -362,25 +363,30 @@ export async function listFunderFundingRequests(funderId, input = {}) {
         employee: { select: {
           id: true,
           name: true,
-          email: true,
+          phone: true,
           fundingBankName: true,
           fundingAccountHolderName: true,
           fundingAccountNumber: true,
         } },
         supervisor: { select: { id: true, name: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
-        refunds: {
-          orderBy: { requestedAt: "desc" },
-          take: 1,
-          select: { id: true, status: true, requestedAt: true, employeeConfirmedAt: true, paymentReference: true, funderNote: true },
-        },
-        reports: {
-          orderBy: { requestedAt: "desc" },
-          take: 1,
-          select: { id: true, status: true, requestedAt: true, processedAt: true, reason: true, funderNote: true },
-        },
+        ...(input.view !== "overview" && {
+          refunds: {
+            orderBy: { requestedAt: "desc" },
+            take: 1,
+            select: { id: true, status: true, requestedAt: true, employeeConfirmedAt: true, paymentReference: true, funderNote: true },
+          },
+          reports: {
+            orderBy: { requestedAt: "desc" },
+            take: 1,
+            select: { id: true, status: true, requestedAt: true, processedAt: true, reason: true, funderNote: true },
+          },
+        }),
       },
-      orderBy: { requestedAt: "desc" },
+      orderBy: [
+        { lastStatusChangedAt: { sort: "desc", nulls: "last" } },
+        { requestedAt: "desc" },
+      ],
       skip,
       take: pageSize,
     }),
@@ -393,7 +399,7 @@ export async function listFunderFundingRequests(funderId, input = {}) {
       employee: {
         id: request.employee.id,
         name: request.employee.name,
-        email: request.employee.email,
+        phone: request.employee.phone,
       },
     };
   });
@@ -434,7 +440,7 @@ export async function listSupervisorFundingRequests(supervisorId, input = {}) {
     prisma.fundingRequest.findMany({
       where,
       include: {
-        employee: { select: { id: true, name: true, email: true } },
+        employee: { select: { id: true, name: true, phone: true } },
         funder: { select: { id: true, name: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
         refunds: {
@@ -536,7 +542,7 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
     const result = await transaction.fundingRequest.findUnique({
       where: { id: requestId },
       include: {
-        employee: { select: { id: true, name: true, email: true } },
+        employee: { select: { id: true, name: true, phone: true } },
         supervisor: { select: { id: true, name: true } },
       },
     });
