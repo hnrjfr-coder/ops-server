@@ -7,7 +7,7 @@ paymentRouter.use(requireAuthenticatedAccountType("EMPLOYEE"));
 
 paymentRouter.get("/", async (request, response, next) => {
   try {
-    const payments = await listPaymentRequests(request.authUser.id);
+    const payments = await listPaymentRequests(request.authUser.id, request.query);
     response.json(payments);
   } catch (error) {
     next(error);
@@ -16,7 +16,7 @@ paymentRouter.get("/", async (request, response, next) => {
 
 paymentRouter.get("/earnings", async (request, response, next) => {
   try {
-    const earnings = await getEarnings(request.authUser.id);
+    const earnings = await getEarnings(request.authUser.id, request.query);
     response.json(earnings);
   } catch (error) {
     next(error);

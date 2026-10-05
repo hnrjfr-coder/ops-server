@@ -27,7 +27,7 @@ supervisorRouter.get("/funding-requests", async (request, response, next) => {
 supervisorRouter.get("/employees", async (request, response, next) => {
   try {
     const supervisorId = request.authUser.id;
-    response.json(await getSupervisorEmployees(supervisorId));
+    response.json(await getSupervisorEmployees(supervisorId, request.query));
   } catch (error) {
     next(error);
   }

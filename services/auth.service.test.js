@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveEmployeeRegistrationAssignment, resolveRegistrationSupervisor } from "./auth.service.js";
+import { resolveRegistrationSupervisor } from "./auth.service.js";
 
 test("registration resolves the selected funder to its sole active supervisor", () => {
   assert.equal(resolveRegistrationSupervisor([{ id: "supervisor-1" }]), "supervisor-1");
@@ -20,24 +20,6 @@ test("registration rejects a funder with multiple active supervisors", () => {
   );
 });
 
-test("manual-routing funder registration leaves supervisor assignment open", () => {
-  assert.deepEqual(resolveEmployeeRegistrationAssignment({
-    id: "funder-manual",
-    manualSupervisorRouting: true,
-  }, []), {
-    managerId: null,
-    funderId: "funder-manual",
-    supervisor: null,
-  });
-});
-
-test("standard funder registration assigns its sole active supervisor", () => {
-  assert.deepEqual(resolveEmployeeRegistrationAssignment({
-    id: "funder-standard",
-    manualSupervisorRouting: false,
-  }, [{ id: "supervisor-1" }]), {
-    managerId: "supervisor-1",
-    funderId: null,
-    supervisor: "supervisor-1",
-  });
+test("employee registration must resolve to the funder's single active supervisor", () => {
+  assert.equal(resolveRegistrationSupervisor([{ id: "supervisor-1" }]), "supervisor-1");
 });

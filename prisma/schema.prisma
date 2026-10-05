@@ -26,7 +26,6 @@ model User {
   adminApprovedEmployees      User[]           @relation("EmployeeAdminApproval")
   funderId                    String?
   funder                      User?            @relation("FunderSupervisors", fields: [funderId], references: [id], onDelete: SetNull)
-  manualSupervisorRouting     Boolean          @default(false)
   supervisors                 User[]           @relation("FunderSupervisors")
   supervisor                  String?
   accountType                 String           @default("EMPLOYEE")
@@ -62,6 +61,8 @@ model User {
 
   @@index([accountType, status])
   @@index([accountType, createdAt])
+  @@index([managerId])
+  @@index([funderId])
   @@schema("ops")
 }
 
@@ -90,6 +91,9 @@ model WorkSubmission {
   @@index([employeeId])
   @@index([status])
   @@index([employeeId, status, payoutRequestId])
+  @@index([employeeId, submittedAt])
+  @@index([supervisorId, submittedAt])
+  @@index([supervisorId, status, submittedAt])
   @@index([approvedAt])
   @@schema("ops")
 }
@@ -116,8 +120,12 @@ model FundingRequest {
   reports          FundingReport[]
 
   @@index([employeeId, status, requestedAt])
+  @@index([employeeId, requestedAt])
+  @@index([employeeId, approvedAt])
   @@index([funderId, status, requestedAt])
+  @@index([funderId, approvedAt])
   @@index([supervisorId, status, requestedAt])
+  @@index([supervisorId, approvedAt])
   @@index([status, requestedAt])
   @@index([approvedAt])
   @@schema("ops")
@@ -141,8 +149,10 @@ model RefundRequest {
 
   @@index([employeeId, requestedAt])
   @@index([funderId, status, requestedAt])
+  @@index([fundingRequestId, requestedAt])
   @@index([fundingRequestId, status])
   @@index([status, requestedAt])
+  @@index([processedAt])
   @@schema("ops")
 }
 
@@ -164,6 +174,7 @@ model FundingReport {
   @@index([funderId, status, requestedAt])
   @@index([fundingRequestId, requestedAt])
   @@index([status, requestedAt])
+  @@index([processedAt])
   @@schema("ops")
 }
 
@@ -182,6 +193,7 @@ model PaymentRequest {
   work         WorkSubmission @relation(fields: [workId], references: [id], onDelete: Cascade)
 
   @@index([employeeId])
+  @@index([employeeId, requestedAt])
   @@index([status])
   @@schema("ops")
 }

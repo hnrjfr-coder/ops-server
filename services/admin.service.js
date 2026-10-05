@@ -3,6 +3,12 @@ import { PAYOUT_PER_WORK } from "./payout.service.js";
 
 const employeeWhere = { accountType: "EMPLOYEE" };
 
+const parsePagination = (input = {}) => {
+  const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
+  const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
+  return { page, pageSize, skip: (page - 1) * pageSize };
+};
+
 export async function getAdminOverview() {
   const [employeeCount, activeEmployeeCount, pendingPayoutCount, pendingPayouts, completedWorkCount, recentPayouts] = await Promise.all([
     prisma.user.count({ where: employeeWhere }),
@@ -42,11 +48,27 @@ export async function getAdminSignupNotifications() {
   return { pendingEmployeeSignupCount };
 }
 
-export async function listAdminStaff() {
-  const [employees, employeeCount, activeEmployeeCount] = await Promise.all([
+export async function listAdminStaff(input = {}) {
+  const { page, pageSize, skip } = parsePagination(input);
+  const search = String(input.search || "").trim();
+  const status = String(input.status || "").trim().toUpperCase();
+  const where = {
+    ...employeeWhere,
+    ...(status && status !== "ALL" ? { status } : {}),
+    ...(search ? {
+      OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { phone: { contains: search, mode: "insensitive" } },
+        { manager: { is: { name: { contains: search, mode: "insensitive" } } } },
+      ],
+    } : {}),
+  };
+  const [employees, total, statusGroups] = await Promise.all([
     prisma.user.findMany({
-      where: employeeWhere,
-      orderBy: [{ name: "asc" }, { email: "asc" }],
+      where,
+      orderBy: [{ name: "asc" }, { email: "asc" }, { id: "asc" }],
+      skip,
+      take: pageSize,
       select: {
         id: true,
         name: true,
@@ -60,83 +82,22 @@ export async function listAdminStaff() {
         _count: { select: { work: true, payoutRequests: true } },
       },
     }),
-    prisma.user.count({ where: employeeWhere }),
-    prisma.user.count({ where: { ...employeeWhere, status: "ACTIVE" } }),
+    prisma.user.count({ where }),
+    prisma.user.groupBy({ by: ["status"], where: employeeWhere, _count: { _all: true } }),
   ]);
+  const countsByStatus = Object.fromEntries(statusGroups.map((group) => [group.status, group._count._all]));
+  const employeeCount = Object.values(countsByStatus).reduce((sum, count) => sum + count, 0);
+  const activeEmployeeCount = countsByStatus.ACTIVE || 0;
+  const pendingApprovalCount = countsByStatus.PENDING_ADMIN_APPROVAL || 0;
 
-  return { employees, employeeCount, activeEmployeeCount };
-}
-
-export async function listAdminFunders() {
-  const [funders, activeSupervisors] = await Promise.all([
-    prisma.user.findMany({
-      where: { accountType: "FUNDER" },
-      orderBy: [{ name: "asc" }, { email: "asc" }],
-      select: { id: true, name: true, email: true, status: true, manualSupervisorRouting: true },
-    }),
-    prisma.user.findMany({
-      where: { accountType: "SUPERVISOR", status: "ACTIVE" },
-      select: { id: true, name: true, funderId: true },
-      orderBy: { name: "asc" },
-    }),
-  ]);
-  return funders.map((funder) => ({
-    ...funder,
-    supervisors: activeSupervisors.filter((supervisor) => supervisor.funderId === funder.id),
-  }));
-}
-
-export async function updateAdminFunderRouting(funderId, enabled) {
-  if (typeof enabled !== "boolean") {
-    const error = new Error("manualSupervisorRouting must be a boolean.");
-    error.statusCode = 400;
-    throw error;
-  }
-  return prisma.$transaction(async (transaction) => {
-    const funder = await transaction.user.findFirst({
-      where: { id: funderId, accountType: "FUNDER" },
-      select: { id: true, manualSupervisorRouting: true },
-    });
-    if (!funder) {
-      const error = new Error("Funder was not found.");
-      error.statusCode = 404;
-      throw error;
-    }
-    if (!enabled && funder.manualSupervisorRouting) {
-      const linkedSupervisors = await transaction.user.findMany({
-        where: { funderId, accountType: "SUPERVISOR", status: "ACTIVE" },
-        select: { id: true },
-      });
-      const unassignedEmployees = await transaction.user.count({
-        where: { funderId, accountType: "EMPLOYEE", managerId: null },
-      });
-      const pendingUnassignedRequests = await transaction.fundingRequest.count({
-        where: { funderId, status: "PENDING_FUNDER_APPROVAL", supervisorId: null },
-      });
-      if ((unassignedEmployees > 0 || pendingUnassignedRequests > 0) && linkedSupervisors.length !== 1) {
-        const error = new Error("Assign one active default supervisor to this funder before disabling manual supervisor routing.");
-        error.statusCode = 409;
-        throw error;
-      }
-      if (unassignedEmployees > 0) {
-        await transaction.user.updateMany({
-          where: { funderId, accountType: "EMPLOYEE", managerId: null },
-          data: { managerId: linkedSupervisors[0].id, supervisor: linkedSupervisors[0].id },
-        });
-      }
-      if (pendingUnassignedRequests > 0) {
-        await transaction.fundingRequest.updateMany({
-          where: { funderId, status: "PENDING_FUNDER_APPROVAL", supervisorId: null },
-          data: { supervisorId: linkedSupervisors[0].id },
-        });
-      }
-    }
-    return transaction.user.update({
-      where: { id: funderId },
-      data: { manualSupervisorRouting: enabled },
-      select: { id: true, name: true, email: true, status: true, manualSupervisorRouting: true },
-    });
-  });
+  return {
+    employees,
+    employeeCount,
+    activeEmployeeCount,
+    pendingApprovalCount,
+    statuses: statusGroups.map(({ status: employeeStatus }) => employeeStatus),
+    pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
+  };
 }
 
 export async function approveEmployeeAccount(employeeId, adminId) {

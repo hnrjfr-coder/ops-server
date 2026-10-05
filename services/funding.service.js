@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 
 const accountNames = ["SWAGGZ", "METROFLEX", "MONETIZE", "NEILA"];
@@ -136,7 +137,6 @@ export function getUnusedApprovedFundingWhere(where = {}) {
 }
 
 export function getFundingRequestSupervisorId(employee, funder) {
-  if (funder.manualSupervisorRouting) return null;
   const supervisor = employee.manager;
   if (!supervisor || supervisor.accountType !== "SUPERVISOR" || supervisor.status !== "ACTIVE") {
     const error = new Error("An active supervisor must be assigned before requesting funding.");
@@ -149,23 +149,6 @@ export function getFundingRequestSupervisorId(employee, funder) {
     throw error;
   }
   return supervisor.id;
-}
-
-export function resolveFundingApprovalSupervisorId(manualSupervisorRouting, selectedSupervisorId, activeSupervisorId) {
-  if (!manualSupervisorRouting) {
-    if (selectedSupervisorId) {
-      const error = new Error("A supervisor may only be selected for funders using manual supervisor routing.");
-      error.statusCode = 400;
-      throw error;
-    }
-    return null;
-  }
-  if (!selectedSupervisorId || selectedSupervisorId !== activeSupervisorId) {
-    const error = new Error("Select an active supervisor for this funding request.");
-    error.statusCode = 400;
-    throw error;
-  }
-  return activeSupervisorId;
 }
 
 export function getConfirmedFundingWhere(where = {}) {
@@ -209,7 +192,7 @@ async function fundingSummary(where) {
       _sum: { amount: true },
     }),
     prisma.fundingRequest.aggregate({
-      where: getActiveApprovedFundingWhere(where),
+      where: getConfirmedFundingWhere(where),
       _count: { _all: true },
       _sum: { amount: true },
     }),
@@ -239,15 +222,12 @@ export async function createFundingRequest(employeeId, input) {
       id: true,
       accountType: true,
       status: true,
-      funder: {
-        select: { id: true, accountType: true, status: true, manualSupervisorRouting: true },
-      },
       manager: {
         select: {
           id: true,
           accountType: true,
           status: true,
-          funder: { select: { id: true, accountType: true, status: true, manualSupervisorRouting: true } },
+          funder: { select: { id: true, accountType: true, status: true } },
         },
       },
     },
@@ -257,7 +237,7 @@ export async function createFundingRequest(employeeId, input) {
     error.statusCode = 404;
     throw error;
   }
-  const funder = employee.funder || employee.manager?.funder;
+  const funder = employee.manager?.funder;
   if (!funder || funder.accountType !== "FUNDER" || funder.status !== "ACTIVE") {
     const error = new Error("The assigned supervisor does not have an active funder.");
     error.statusCode = 409;
@@ -368,24 +348,105 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
     employeeId,
     ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
   };
-  const summary = await fundingSummary(summaryWhere);
-  const fundingCycleRequests = await prisma.fundingRequest.findMany({
-    where: { employeeId },
-    orderBy: { requestedAt: "desc" },
-    select: {
-      status: true,
-      work: { select: { id: true } },
-      reports: { orderBy: { requestedAt: "desc" }, select: { id: true, status: true }, take: 1 },
-      refunds: { orderBy: { requestedAt: "desc" }, select: { id: true, status: true }, take: 1 },
-    },
-  });
-  const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
-  const fundingRequestBlockReason = getFundingRequestBlockReason(fundingCycleRequests);
-  const fundingRequestAwaitingWork = hasUnsubmittedApprovedFundingRequest(fundingCycleRequests);
-  const fundingRequestAwaitingRefundOrReportApproval = fundingCycleRequests.some(hasPendingRefundOrReport);
-  const fundingRequestAwaitingFunderApproval = fundingCycleRequests.some(
-    (request) => request.status === "PENDING_FUNDER_APPROVAL",
-  );
+  const [summary, cycleRows] = await Promise.all([
+    fundingSummary(summaryWhere),
+    prisma.$queryRaw`
+    WITH request_state AS (
+      SELECT
+        funding."id",
+        funding."status",
+        funding."requestedAt",
+        EXISTS (
+          SELECT 1 FROM "ops"."WorkSubmission" work
+          WHERE work."fundingRequestId" = funding."id"
+        ) AS "hasWork",
+        (
+          SELECT refund."status" FROM "ops"."RefundRequest" refund
+          WHERE refund."fundingRequestId" = funding."id"
+          ORDER BY refund."requestedAt" DESC, refund."id" DESC
+          LIMIT 1
+        ) AS "latestRefundStatus",
+        (
+          SELECT report."status" FROM "ops"."FundingReport" report
+          WHERE report."fundingRequestId" = funding."id"
+          ORDER BY report."requestedAt" DESC, report."id" DESC
+          LIMIT 1
+        ) AS "latestReportStatus"
+      FROM "ops"."FundingRequest" funding
+      WHERE funding."employeeId" = ${employeeId}
+    ),
+    cycle_requests AS (
+      SELECT
+        request_state.*,
+        ROW_NUMBER() OVER (ORDER BY request_state."requestedAt" DESC, request_state."id" DESC) AS "position"
+      FROM request_state
+      WHERE request_state."status" NOT IN ('FUNDER_REJECTED', 'SUPERVISOR_REJECTED', 'REFUNDED')
+        AND request_state."latestRefundStatus" IS DISTINCT FROM 'APPROVED'
+        AND request_state."latestRefundStatus" IS DISTINCT FROM 'REJECTED'
+        AND request_state."latestReportStatus" IS DISTINCT FROM 'APPROVED'
+        AND request_state."latestReportStatus" IS DISTINCT FROM 'REJECTED'
+    ),
+    reset_point AS (
+      SELECT MIN(first_request."position") AS "position"
+      FROM cycle_requests first_request
+      JOIN cycle_requests second_request ON second_request."position" = first_request."position" + 1
+      JOIN cycle_requests third_request ON third_request."position" = first_request."position" + 2
+      JOIN cycle_requests fourth_request ON fourth_request."position" = first_request."position" + 3
+      WHERE first_request."status" = 'COMPLETED'
+        AND second_request."status" = 'COMPLETED'
+        AND third_request."status" = 'COMPLETED'
+        AND fourth_request."status" = 'COMPLETED'
+    ),
+    cycle_counts AS (
+      SELECT COUNT(*)::int AS total FROM cycle_requests
+    ),
+    cycle_flags AS (
+      SELECT
+        COALESCE(BOOL_OR("status" = 'PENDING_FUNDER_APPROVAL'), false) AS "awaitingFunder",
+        COALESCE(BOOL_OR(
+          "status" = 'APPROVED' AND NOT "hasWork"
+          AND "latestRefundStatus" IS DISTINCT FROM 'PENDING_FUNDER_APPROVAL'
+          AND "latestReportStatus" IS DISTINCT FROM 'PENDING_FUNDER_APPROVAL'
+          AND "latestRefundStatus" IS DISTINCT FROM 'APPROVED'
+          AND "latestRefundStatus" IS DISTINCT FROM 'REJECTED'
+          AND "latestReportStatus" IS DISTINCT FROM 'APPROVED'
+          AND "latestReportStatus" IS DISTINCT FROM 'REJECTED'
+        ), false) AS "awaitingWork"
+      FROM cycle_requests
+    ),
+    activity_flags AS (
+      SELECT
+        (SELECT COALESCE(BOOL_OR("status" = 'PENDING_FUNDER_APPROVAL'), false) FROM request_state) AS "awaitingFunder",
+        (SELECT COALESCE(BOOL_OR(
+          "latestRefundStatus" = 'PENDING_FUNDER_APPROVAL'
+          OR "latestReportStatus" = 'PENDING_FUNDER_APPROVAL'
+        ), false) FROM request_state) AS "hasPendingActivity",
+        (SELECT COALESCE(BOOL_OR(
+          "latestRefundStatus" = 'PENDING_FUNDER_APPROVAL'
+          OR "latestReportStatus" = 'PENDING_FUNDER_APPROVAL'
+          OR "status" = 'REFUND_PENDING'
+        ), false) FROM cycle_requests) AS "awaitingRefundOrReport"
+    )
+    SELECT
+      COALESCE(reset_point."position"::int - 1, cycle_counts.total) AS "fundingCycleRequestCount",
+      cycle_flags."awaitingWork" AS "fundingRequestAwaitingWork",
+      activity_flags."hasPendingActivity" AS "fundingRequestAwaitingRefundOrReportApproval",
+      activity_flags."awaitingFunder" AS "fundingRequestAwaitingFunderApproval",
+      CASE
+        WHEN cycle_flags."awaitingFunder" THEN 'AWAITING_FUNDER_APPROVAL'
+        WHEN activity_flags."awaitingRefundOrReport" THEN 'AWAITING_REFUND_OR_REPORT_APPROVAL'
+        WHEN cycle_flags."awaitingWork" THEN 'AWAITING_WORK_SUBMISSION'
+        ELSE NULL
+      END AS "fundingRequestBlockReason"
+    FROM reset_point, cycle_counts, cycle_flags, activity_flags
+    `,
+  ]);
+  const [cycleState] = cycleRows;
+  const fundingCycleRequestCount = cycleState.fundingCycleRequestCount;
+  const fundingRequestBlockReason = cycleState.fundingRequestBlockReason;
+  const fundingRequestAwaitingWork = cycleState.fundingRequestAwaitingWork;
+  const fundingRequestAwaitingRefundOrReportApproval = cycleState.fundingRequestAwaitingRefundOrReportApproval;
+  const fundingRequestAwaitingFunderApproval = cycleState.fundingRequestAwaitingFunderApproval;
   const fundingRequestCycleLimitReached = fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE;
   return {
     ...summary,
@@ -422,7 +483,7 @@ export async function listFunderFundingRequests(funderId, input = {}) {
           fundingAccountNumber: true,
         } },
         supervisor: { select: { id: true, name: true } },
-        funder: { select: { id: true, manualSupervisorRouting: true } },
+        funder: { select: { id: true, name: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
         ...(input.view !== "overview" && {
           refunds: {
@@ -540,23 +601,20 @@ export async function getSupervisorFundingSummary(supervisorId, input = {}) {
     ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
   };
   const summary = await fundingSummary(summaryWhere);
-  const pendingUsers = await prisma.fundingRequest.findMany({
-    where: { ...summaryWhere, status: "PENDING_FUNDER_APPROVAL" },
-    distinct: ["employeeId"],
-    select: { employeeId: true },
-  });
-  return { ...summary, pendingRequestUserCount: pendingUsers.length };
+  const pendingDateFilter = dateRange
+    ? Prisma.sql`AND "requestedAt" >= ${dateRange.start} AND "requestedAt" < ${dateRange.endExclusive}`
+    : Prisma.empty;
+  const [pendingUsers] = await prisma.$queryRaw`
+    SELECT COUNT(DISTINCT "employeeId")::int AS count
+    FROM "ops"."FundingRequest"
+    WHERE "supervisorId" = ${supervisorId}
+      AND "status" = 'PENDING_FUNDER_APPROVAL'
+      ${pendingDateFilter}
+  `;
+  return { ...summary, pendingRequestUserCount: pendingUsers.count };
 }
 
-export async function listActiveFundingSupervisors() {
-  return prisma.user.findMany({
-    where: { accountType: "SUPERVISOR", status: "ACTIVE" },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
-}
-
-export async function decideFundingRequest(funderId, requestId, decision, transferConfirmed = false, selectedSupervisorId = "") {
+export async function decideFundingRequest(funderId, requestId, decision, transferConfirmed = false) {
   if (!["APPROVED", "REJECTED"].includes(decision)) {
     const error = new Error("Decision must be APPROVED or REJECTED.");
     error.statusCode = 400;
@@ -569,12 +627,10 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
   }
   const decidedAt = new Date();
   return prisma.$transaction(async (transaction) => {
-    let assignedSupervisorId;
     if (decision === "APPROVED") {
       const pendingRequest = await transaction.fundingRequest.findFirst({
         where: { id: requestId, funderId, status: "PENDING_FUNDER_APPROVAL" },
         select: {
-          funder: { select: { manualSupervisorRouting: true } },
           supervisorId: true,
           employee: {
             select: {
@@ -596,27 +652,13 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
         error.statusCode = 409;
         throw error;
       }
-      if (pendingRequest?.funder.manualSupervisorRouting) {
-        const supervisor = await transaction.user.findFirst({
-          where: {
-            id: String(selectedSupervisorId || "").trim(),
-            accountType: "SUPERVISOR",
-            status: "ACTIVE",
-          },
-          select: { id: true },
-        });
-        assignedSupervisorId = resolveFundingApprovalSupervisorId(
-          true,
-          String(selectedSupervisorId || "").trim(),
-          supervisor?.id,
-        );
-      } else if (pendingRequest) {
-        resolveFundingApprovalSupervisorId(false, String(selectedSupervisorId || "").trim(), undefined);
+      if (pendingRequest) {
         const supervisor = await transaction.user.findFirst({
           where: {
             id: pendingRequest.supervisorId || "",
             accountType: "SUPERVISOR",
             status: "ACTIVE",
+            funderId,
           },
           select: { id: true },
         });
@@ -634,7 +676,6 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
         status: decision === "APPROVED" ? "APPROVED" : "FUNDER_REJECTED",
         approvedAt: decision === "APPROVED" ? decidedAt : null,
         lastStatusChangedAt: decidedAt,
-        ...(assignedSupervisorId ? { supervisorId: assignedSupervisorId } : {}),
       },
     });
     if (updated.count !== 1) {
@@ -656,7 +697,7 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
       include: {
         employee: { select: { id: true, name: true, phone: true } },
         supervisor: { select: { id: true, name: true } },
-        funder: { select: { id: true, manualSupervisorRouting: true } },
+        funder: { select: { id: true, name: true } },
       },
     });
     if (!result) {

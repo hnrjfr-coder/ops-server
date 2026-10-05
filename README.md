@@ -39,10 +39,7 @@ created under the dedicated `ops` schema, leaving other schemas untouched.
 - `POST /api/funding-requests`
 - `GET /api/funder/summary`
 - `GET /api/funder/requests?page=1&pageSize=20`
-- `GET /api/funder/supervisors`
 - `PATCH /api/funder/requests/:requestId`
-- `GET /api/admin/funders`
-- `PATCH /api/admin/funders/:funderId/routing`
 - `GET /api/admin/analytics?period=day|month|year&from=YYYY-MM-DD&to=YYYY-MM-DD`
 - `GET /api/works`
 - `POST /api/works` with an approved `fundingRequestId`
@@ -87,6 +84,16 @@ can review; payout endpoints return 503 when Supabase authentication is not
 configured. A decision is final. Apply the additive database schema after
 backing up the database with `npm run db:push`.
 
+After a payout is successfully marked `PAID`, the backend sends an SMS to the
+employee phone number saved with that payout request. The message includes the
+employee name and payout amount. Configure `BULKSMS_TOKEN` and
+`BULKSMS_SENDER_ID` in the backend environment; `BULKSMS_API_URL` defaults to
+`https://www.bulksmsnigeria.com/api/v2/sms`, and `BULKSMS_GATEWAY` is optional.
+The request uses a Bearer token and JSON fields `from`, `to`, and `body`.
+Delivery failures do not undo a payout decision: the admin response includes
+`smsNotification.status` (`sent`, `failed`, `invalid_phone`, or
+`not_configured`), and failures are logged with the payout request ID.
+
 ## Admin analytics
 
 `GET /api/admin/analytics` returns aggregated dashboard metrics without loading
@@ -129,13 +136,6 @@ A funder approves or rejects it with `PATCH /api/funder/requests/:requestId`:
 { "decision": "APPROVED" }
 ```
 
-For funders configured with manual supervisor routing, an approval must also
-include `supervisorId` for an active supervisor:
-
-```json
-{ "decision": "APPROVED", "supervisorId": "active-supervisor-id" }
-```
-
 After approval, the employee submits the work with:
 
 ```json
@@ -156,17 +156,14 @@ records keep their original category values; only new submissions use the two
 current account categories.
 
 Registration options include active `supervisors` and `funders`. Employees
-choose a funder. For regular funders, the backend assigns the funder's sole
-active supervisor and blocks signup if there are zero or multiple active
-supervisors. A funder with `manualSupervisorRouting` enabled does not assign a
-default employee supervisor; that funder chooses an active supervisor for each
-funding approval. The assignment is stored on the funding request and routes
-only the work submitted against that request. New supervisors choose their funder. Funder accounts are
-provisioned by an administrator and cannot be created through public signup.
-Set Blessing and Queen up as `FUNDER` profiles, then create Peace and Willis as
-`SUPERVISOR` profiles. Assign Peace to Blessing and Willis to Queen. Existing
-employee profiles must have their `managerId` updated to Peace or Willis as
-appropriate.
+choose a funder, and the backend assigns that funder's sole active supervisor.
+Signup is blocked if the selected funder has zero or multiple active
+supervisors. Funding requests inherit this supervisor assignment; funders
+cannot change it during approval. New supervisors choose their funder. Funder
+accounts are provisioned by an administrator and cannot be created through
+public signup. The funder/supervisor structure is Blessing -> Peace,
+Queen -> Willis, and Hillary -> Supervisor 1. Employee profiles must have
+their `managerId` set to the supervisor linked to their funder.
 
 After backing up the database, apply the additive schema with:
 
@@ -177,9 +174,8 @@ npm run db:push
 
 Existing `PaymentRequest` and work records are retained as legacy history and
 are not automatically converted into funding requests. Set existing
-Blessing/Queen profile account types to `FUNDER` and Peace/Willis to
-`SUPERVISOR`, then link the supervisor profiles to their funders before using
-the new flow. New requests and work submissions use
+funder profiles to `FUNDER` and supervisor profiles to `SUPERVISOR`, then link
+each supervisor profile to its funder before using the new flow. New requests and work submissions use
 the `FundingRequest` model; legacy payment endpoints remain for old records.
 
 ## Frontend restructure prompt
@@ -196,10 +192,10 @@ Registration: load GET /api/auth/options. Remove INVESTOR as a public account
 type. FUNDER is a provisioned role, not a public signup choice. For EMPLOYEE
 registration, require a funder selected from options.funders and submit its ID
 as funder. The backend derives and assigns the funder's sole active supervisor;
-disable funder options with zero or multiple active supervisors unless the
-funder has manual supervisor routing enabled. Funder-to-supervisor
-setup is Blessing -> Peace and Queen -> Willis; the selectable values must
-come from the API, not hard-coded IDs or names.
+disable funder options with zero or multiple active supervisors.
+Funder-to-supervisor setup is Blessing -> Peace, Queen -> Willis, and
+Hillary -> Supervisor 1. The selectable values must come from the API, not
+hard-coded IDs or names.
 
 Employee funding: show a fixed-price selector with accountName and accountCategory. The accountName options are SWAGGZ, METROFLEX, MONETIZE, and NEILA. The accountCategory options are SUBSCRIPTION and RENEWAL. Use the fixed lookup table: SWAGGZ/METROFLEX/MONETIZE => SUBSCRIPTION 42000, RENEWAL 49500; NEILA => SUBSCRIPTION 35500, RENEWAL 42000. POST { accountName, accountCategory } to /api/funding-requests. Do not let the user type an amount or purpose. Show request history from GET /api/funding-requests?page=1&pageSize=20 and status totals from GET /api/funding-requests/summary. Support pagination using the returned pagination fields. Explain in the UI that funder approval reserves funds but does not itself transfer money.
 
@@ -267,11 +263,9 @@ Registration request body:
 ```
 
 Public registration creates `EMPLOYEE` accounts only. `FUNDER` profiles are
-provisioned by an administrator. Employees select a funder; regular funders
-assign their sole active supervisor at signup, while funders configured for
-manual supervisor routing select from all active supervisors on every funding
-approval. That choice is stored on the funding request and routes its work
-submission; it does not change the employee's default supervisor. Admins
+provisioned by an administrator. Employees select a funder; the backend
+assigns that funder's sole active supervisor at signup. The employee and
+funding requests stay linked to that supervisor. Admins
 configure this setting in the Funders page.
 
 The frontend sends this through `src/lib/api.js` to `POST http://localhost:4000/api/auth/register`.

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
-import { approveEmployeeAccount, getAdminOverview, getAdminSignupNotifications, getAdminStaffDetails, listAdminFunders, listAdminStaff, updateAdminFunderRouting } from "../services/admin.service.js";
+import { approveEmployeeAccount, getAdminOverview, getAdminSignupNotifications, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
 import { getAdminAnalytics, listAdminAnalyticsRecords } from "../services/analytics.service.js";
 
 export const adminRouter = Router();
@@ -22,25 +22,9 @@ adminRouter.get("/notifications", async (_request, response, next) => {
   }
 });
 
-adminRouter.get("/staff", async (_request, response, next) => {
+adminRouter.get("/staff", async (request, response, next) => {
   try {
-    response.json(await listAdminStaff());
-  } catch (error) {
-    next(error);
-  }
-});
-
-adminRouter.get("/funders", async (_request, response, next) => {
-  try {
-    response.json(await listAdminFunders());
-  } catch (error) {
-    next(error);
-  }
-});
-
-adminRouter.patch("/funders/:funderId/routing", async (request, response, next) => {
-  try {
-    response.json(await updateAdminFunderRouting(request.params.funderId, request.body?.manualSupervisorRouting));
+    response.json(await listAdminStaff(request.query));
   } catch (error) {
     next(error);
   }

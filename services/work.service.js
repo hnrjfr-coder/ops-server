@@ -1,5 +1,17 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { getFundingDateRange } from "./funding.service.js";
+
+const parsePagination = (input = {}) => {
+  const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
+  const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
+  return { page, pageSize, skip: (page - 1) * pageSize };
+};
+
+const paginatedResult = (items, total, page, pageSize) => ({
+  items,
+  pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
+});
 
 export const isFundingRequestEligibleForWork = (request) =>
   request?.status === "APPROVED" && !request.work && !request.reports?.length && !request.refunds?.length;
@@ -115,80 +127,138 @@ export async function createWorkSubmission(input) {
   });
 }
 
-export function listWorkSubmissions(employeeId) {
-  return prisma.workSubmission.findMany({
-    where: employeeId ? { employeeId } : undefined,
+const workListSelection = {
+  id: true,
+  accountName: true,
+  accountCategory: true,
+  completedAt: true,
+  amount: true,
+  notes: true,
+  status: true,
+  submittedAt: true,
+  approvedAt: true,
+  updatedAt: true,
+  employeeId: true,
+  supervisorId: true,
+  fundingRequestId: true,
+  payment: { select: { id: true, status: true, amount: true, requestedAt: true, processedAt: true } },
+  fundingRequest: {
     select: {
       id: true,
+      status: true,
       accountName: true,
       accountCategory: true,
-      completedAt: true,
       amount: true,
-      notes: true,
-      status: true,
-      submittedAt: true,
       approvedAt: true,
-      updatedAt: true,
-      employeeId: true,
-      supervisorId: true,
-      fundingRequestId: true,
-      payment: true,
-      fundingRequest: {
-        select: {
-          id: true,
-          status: true,
-          accountName: true,
-          accountCategory: true,
-          amount: true,
-          approvedAt: true,
-          completedAt: true,
-          requestedAt: true,
-        },
-      },
-      supervisor: { select: { id: true, name: true } },
+      completedAt: true,
+      requestedAt: true,
     },
-    orderBy: { submittedAt: "desc" },
+  },
+  supervisor: { select: { id: true, name: true } },
+};
+
+export async function listWorkSubmissions(employeeId, input = {}) {
+  const { page, pageSize, skip } = parsePagination(input);
+  const dateRange = getFundingDateRange(input);
+  const search = String(input.search || "").trim();
+  const status = String(input.status || "").trim();
+  const where = {
+    employeeId,
+    ...(status ? { status } : {}),
+    ...(dateRange ? { submittedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
+    ...(search ? {
+      OR: [
+        { accountName: { contains: search, mode: "insensitive" } },
+        { accountCategory: { contains: search, mode: "insensitive" } },
+      ],
+    } : {}),
+  };
+  const [items, total, statusGroups] = await Promise.all([
+    prisma.workSubmission.findMany({
+      where,
+      select: workListSelection,
+      orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+      skip,
+      take: pageSize,
+    }),
+    prisma.workSubmission.count({ where }),
+    prisma.workSubmission.groupBy({
+      by: ["status"],
+      where: { employeeId },
+      _count: { _all: true },
+    }),
+  ]);
+  return {
+    ...paginatedResult(items, total, page, pageSize),
+    statusCounts: Object.fromEntries(statusGroups.map((group) => [group.status, group._count._all])),
+  };
+}
+
+export function getEmployeeWorkSubmission(employeeId, workId) {
+  return prisma.workSubmission.findFirst({
+    where: { id: workId, employeeId },
+    select: workListSelection,
   });
 }
 
-export function listPaymentRequests(employeeId) {
-  return prisma.paymentRequest.findMany({
-    where: employeeId ? { employeeId } : undefined,
-    include: {
-      work: {
-        select: {
-          id: true,
-          accountName: true,
-          accountCategory: true,
-          completedAt: true,
-          amount: true,
-          notes: true,
-          status: true,
-          submittedAt: true,
-          approvedAt: true,
-          updatedAt: true,
-          employeeId: true,
-          supervisorId: true,
-          fundingRequestId: true,
+export async function listPaymentRequests(employeeId, input = {}) {
+  const { page, pageSize, skip } = parsePagination(input);
+  const status = String(input.status || "").trim().toUpperCase();
+  const where = { employeeId, ...(status ? { status } : {}) };
+  const [items, total] = await Promise.all([
+    prisma.paymentRequest.findMany({
+      where,
+      select: {
+        id: true,
+        amount: true,
+        status: true,
+        requestedAt: true,
+        processedAt: true,
+        work: {
+          select: {
+            id: true,
+            accountName: true,
+            accountCategory: true,
+            completedAt: true,
+            amount: true,
+            notes: true,
+            status: true,
+            submittedAt: true,
+            approvedAt: true,
+            updatedAt: true,
+            employeeId: true,
+            supervisorId: true,
+            fundingRequestId: true,
+          },
         },
       },
-    },
-    orderBy: { requestedAt: "desc" },
-  });
+      orderBy: [{ requestedAt: "desc" }, { id: "desc" }],
+      skip,
+      take: pageSize,
+    }),
+    prisma.paymentRequest.count({ where }),
+  ]);
+  return paginatedResult(items, total, page, pageSize);
 }
 
-export async function getEarnings(employeeId) {
-  const payments = await listPaymentRequests(employeeId);
-  const paid = payments.filter((payment) => payment.status === "PAID");
-  const approved = payments.filter((payment) => ["APPROVED", "PAID"].includes(payment.status));
-  const pending = payments.filter((payment) => ["PENDING", "PROCESSING"].includes(payment.status));
+export async function getEarnings(employeeId, input = {}) {
+  const [groups, paymentPage] = await Promise.all([
+    prisma.paymentRequest.groupBy({
+      by: ["status"],
+      where: { employeeId },
+      _sum: { amount: true },
+    }),
+    listPaymentRequests(employeeId, input),
+  ]);
+  const totalsByStatus = Object.fromEntries(groups.map((group) => [group.status, group._sum.amount || 0]));
   return {
     totals: {
-      earned: approved.reduce((sum, payment) => sum + payment.amount, 0),
-      paid: paid.reduce((sum, payment) => sum + payment.amount, 0),
-      pending: pending.reduce((sum, payment) => sum + payment.amount, 0),
+      earned: (totalsByStatus.APPROVED || 0) + (totalsByStatus.PAID || 0),
+      paid: totalsByStatus.PAID || 0,
+      pending: (totalsByStatus.PENDING || 0) + (totalsByStatus.PROCESSING || 0),
     },
-    payments,
+    payments: paymentPage.items,
+    pagination: paymentPage.pagination,
   };
 }
 
@@ -201,14 +271,19 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
     ...(dateRange ? { submittedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
   };
   const where = { ...summaryWhere, ...(status ? { status } : {}) };
+  const pendingDateFilter = dateRange
+    ? Prisma.sql`AND "submittedAt" >= ${dateRange.start} AND "submittedAt" < ${dateRange.endExclusive}`
+    : Prisma.empty;
   const [total, statusGroups, pendingEmployees, pendingPayouts, pendingCount] = await Promise.all([
     prisma.workSubmission.count({ where }),
     prisma.workSubmission.groupBy({ by: ["status"], where: summaryWhere, _count: { _all: true } }),
-    prisma.workSubmission.findMany({
-      where: { ...summaryWhere, status: "UNDER_REVIEW" },
-      distinct: ["employeeId"],
-      select: { employeeId: true },
-    }),
+    prisma.$queryRaw`
+      SELECT COUNT(DISTINCT "employeeId")::int AS count
+      FROM "ops"."WorkSubmission"
+      WHERE "supervisorId" = ${supervisorId}
+        AND "status" = 'UNDER_REVIEW'
+        ${pendingDateFilter}
+    `,
     prisma.workSubmission.count({
       where: { ...summaryWhere, payment: { is: { status: "PENDING" } } },
     }),
@@ -232,7 +307,7 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
     supervisorId: true,
     fundingRequestId: true,
     employee: { select: { id: true, name: true, phone: true } },
-    payment: true,
+    payment: { select: { id: true, status: true, requestedAt: true, processedAt: true } },
     fundingRequest: { select: { id: true, status: true, amount: true, accountName: true, accountCategory: true } },
   };
   const [pendingWorks, reviewedWorks] = await Promise.all([
@@ -266,32 +341,49 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
       underReview,
       approved,
       pendingPayouts,
-      underReviewEmployeeCount: pendingEmployees.length,
+      underReviewEmployeeCount: pendingEmployees[0]?.count || 0,
     },
     works,
     pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
   };
 }
 
-export function getSupervisorEmployees(supervisorId) {
-  return prisma.user.findMany({
-    where: {
-      accountType: "EMPLOYEE",
-      OR: [
-        { managerId: supervisorId },
-        { work: { some: { supervisorId } } },
-      ],
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phone: true,
-      status: true,
-      createdAt: true,
-    },
-    orderBy: { name: "asc" },
-  });
+export async function getSupervisorEmployees(supervisorId, input = {}) {
+  const { page, pageSize, skip } = parsePagination(input);
+  const search = String(input.search || "").trim();
+  const where = {
+    accountType: "EMPLOYEE",
+    OR: [
+      { managerId: supervisorId },
+      { work: { some: { supervisorId } } },
+    ],
+    ...(search ? {
+      AND: [{
+        OR: [
+          { name: { contains: search, mode: "insensitive" } },
+          { phone: { contains: search, mode: "insensitive" } },
+        ],
+      }],
+    } : {}),
+  };
+  const [items, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        status: true,
+        createdAt: true,
+      },
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+      skip,
+      take: pageSize,
+    }),
+    prisma.user.count({ where }),
+  ]);
+  return paginatedResult(items, total, page, pageSize);
 }
 
 export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
@@ -362,8 +454,8 @@ export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
         employeeId: true,
         supervisorId: true,
         fundingRequestId: true,
-        payment: true,
-        fundingRequest: true,
+        payment: { select: { id: true, status: true, amount: true, requestedAt: true, processedAt: true } },
+        fundingRequest: { select: { id: true, status: true, amount: true } },
         employee: { select: { id: true, name: true, phone: true } },
         supervisor: { select: { id: true, name: true } },
       },

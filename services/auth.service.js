@@ -42,14 +42,6 @@ export function resolveRegistrationSupervisor(supervisors) {
   return supervisors[0].id;
 }
 
-export function resolveEmployeeRegistrationAssignment(funder, supervisors) {
-  if (funder.manualSupervisorRouting) {
-    return { managerId: null, funderId: funder.id, supervisor: null };
-  }
-  const supervisor = resolveRegistrationSupervisor(supervisors);
-  return { managerId: supervisor, funderId: null, supervisor };
-}
-
 export async function registerUser(input) {
   const name = String(input.name || "").trim();
   const phone = String(input.phone || "").trim();
@@ -98,20 +90,19 @@ export async function registerUser(input) {
   }
   const selectedFunder = await prisma.user.findFirst({
     where: { id: funder, accountType: "FUNDER", status: "ACTIVE" },
-    select: { id: true, manualSupervisorRouting: true },
+    select: { id: true },
   });
   if (!selectedFunder) {
     const error = new Error("Select a valid active funder.");
     error.statusCode = 400;
     throw error;
   }
-  const supervisors = selectedFunder.manualSupervisorRouting
-    ? []
-    : await prisma.user.findMany({
-      where: { funderId: funder, accountType: "SUPERVISOR", status: "ACTIVE" },
-      select: { id: true },
-    });
-  const assignment = resolveEmployeeRegistrationAssignment(selectedFunder, supervisors);
+  const supervisors = await prisma.user.findMany({
+    where: { funderId: funder, accountType: "SUPERVISOR", status: "ACTIVE" },
+    select: { id: true },
+  });
+  const supervisor = resolveRegistrationSupervisor(supervisors);
+  const assignment = { managerId: supervisor, funderId: null, supervisor };
   if (!isValidRegistrationOption(registrationOptions.accountTypes, accountType)) {
     const error = new Error("Select a valid work account type.");
     error.statusCode = 400;
@@ -243,7 +234,7 @@ export async function getRegistrationOptions() {
     }),
     prisma.user.findMany({
       where: { accountType: "FUNDER", status: "ACTIVE" },
-      select: { id: true, name: true, manualSupervisorRouting: true },
+      select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
   ]);
@@ -252,10 +243,7 @@ export async function getRegistrationOptions() {
     funders: activeFunders.map((user) => ({
       value: user.id,
       label: user.name,
-      manualSupervisorRouting: user.manualSupervisorRouting,
-      supervisorCount: user.manualSupervisorRouting
-        ? null
-        : activeSupervisors.filter((supervisor) => supervisor.funderId === user.id).length,
+      supervisorCount: activeSupervisors.filter((supervisor) => supervisor.funderId === user.id).length,
     })),
     accountTypes,
   };

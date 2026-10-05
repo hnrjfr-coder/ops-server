@@ -8,7 +8,6 @@ import {
   getFunderAttendedWhere,
   getFunderOverviewWhere,
   getFundingRequestSupervisorId,
-  resolveFundingApprovalSupervisorId,
   getUnusedApprovedFundingWhere,
   getFundingRequestBlockReason,
   hasUnsubmittedApprovedFundingRequest,
@@ -178,7 +177,7 @@ test("reported or refunded funding is not eligible for work submission", () => {
   assert.equal(isFundingRequestEligibleForWork({ status: "REFUND_PENDING", work: null, reports: [] }), false);
 });
 
-test("active approved funding summary excludes all reported or refunded requests", () => {
+test("active approved funding eligibility excludes requests with report or refund activity", () => {
   assert.deepEqual(getActiveApprovedFundingWhere({ employeeId: "employee-1" }), {
     employeeId: "employee-1",
     status: "APPROVED",
@@ -222,13 +221,6 @@ test("recent funder requests only include requests already attended to", () => {
   });
 });
 
-test("manual-routing funder creates funding requests without a supervisor assignment", () => {
-  assert.equal(getFundingRequestSupervisorId({ manager: null }, {
-    id: "funder-manual",
-    manualSupervisorRouting: true,
-  }), null);
-});
-
 test("standard funder requests retain their employee supervisor assignment", () => {
   assert.equal(getFundingRequestSupervisorId({
     manager: {
@@ -237,10 +229,7 @@ test("standard funder requests retain their employee supervisor assignment", () 
       accountType: "SUPERVISOR",
       funder: { id: "funder-standard" },
     },
-  }, {
-    id: "funder-standard",
-    manualSupervisorRouting: false,
-  }), "supervisor-1");
+  }, { id: "funder-standard" }), "supervisor-1");
 });
 
 test("standard funder request creation rejects supervisors linked to another funder", () => {
@@ -252,31 +241,8 @@ test("standard funder request creation rejects supervisors linked to another fun
         accountType: "SUPERVISOR",
         funder: { id: "different-funder" },
       },
-    }, {
-      id: "funder-standard",
-      manualSupervisorRouting: false,
-    }),
+    }, { id: "funder-standard" }),
     { statusCode: 409 },
-  );
-});
-
-test("manual-routing approval requires a selected active supervisor", () => {
-  assert.equal(resolveFundingApprovalSupervisorId(true, "supervisor-1", "supervisor-1"), "supervisor-1");
-  assert.throws(
-    () => resolveFundingApprovalSupervisorId(true, "", undefined),
-    { statusCode: 400 },
-  );
-  assert.throws(
-    () => resolveFundingApprovalSupervisorId(true, "inactive-supervisor", undefined),
-    { statusCode: 400 },
-  );
-});
-
-test("standard funder approvals reject a supervisor override", () => {
-  assert.equal(resolveFundingApprovalSupervisorId(false, "", undefined), null);
-  assert.throws(
-    () => resolveFundingApprovalSupervisorId(false, "supervisor-1", undefined),
-    { statusCode: 400 },
   );
 });
 

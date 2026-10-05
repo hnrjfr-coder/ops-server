@@ -20,7 +20,7 @@ payoutRouter.get("/summary", requireAuthenticatedAccountType("EMPLOYEE"), async 
 
 payoutRouter.get("/requests", requireAuthenticatedAccountType("EMPLOYEE"), async (request, response, next) => {
   try {
-    response.json(await listEmployeePayoutRequests(request.authUser.id));
+    response.json(await listEmployeePayoutRequests(request.authUser.id, request.query));
   } catch (error) {
     next(error);
   }
@@ -35,9 +35,9 @@ payoutRouter.post("/requests", requireAuthenticatedAccountType("EMPLOYEE"), asyn
   }
 });
 
-payoutRouter.get("/admin/requests", requireAuthenticatedAccountType("ADMIN"), async (_request, response, next) => {
+payoutRouter.get("/admin/requests", requireAuthenticatedAccountType("ADMIN"), async (request, response, next) => {
   try {
-    response.json(await listAdminPayoutRequests());
+    response.json(await listAdminPayoutRequests(request.query));
   } catch (error) {
     next(error);
   }

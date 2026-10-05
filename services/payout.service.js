@@ -1,7 +1,19 @@
 import { prisma } from "../lib/prisma.js";
+import { sendPayoutApprovalSms } from "./sms.service.js";
 
 const WORKS_PER_PAYOUT = 20;
 export const PAYOUT_PER_WORK = 3000;
+
+const parsePagination = (input = {}) => {
+  const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
+  const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
+  return { page, pageSize, skip: (page - 1) * pageSize };
+};
+
+const paginatedResult = (items, total, page, pageSize) => ({
+  items,
+  pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
+});
 
 export function sumPaidPayoutAmounts(payoutRequests) {
   return payoutRequests
@@ -26,6 +38,28 @@ const workSelection = {
 
 const payoutRequestDetails = {
   works: { select: workSelection, orderBy: { approvedAt: "asc" } },
+};
+
+const employeePayoutSelection = {
+  id: true,
+  amount: true,
+  workCount: true,
+  status: true,
+  requestedAt: true,
+  processedAt: true,
+  adminNote: true,
+  works: { select: workSelection, orderBy: { approvedAt: "asc" } },
+};
+
+const adminPayoutSelection = {
+  ...employeePayoutSelection,
+  employeeId: true,
+  employeeName: true,
+  employeePhone: true,
+  payoutBankName: true,
+  payoutAccountHolderName: true,
+  payoutAccountNumber: true,
+  reviewer: { select: { id: true, name: true, email: true } },
 };
 
 export async function createEmployeePayoutRequest(employeeId) {
@@ -108,25 +142,37 @@ export async function createEmployeePayoutRequest(employeeId) {
   }
 }
 
-export function listEmployeePayoutRequests(employeeId) {
-  return prisma.payoutRequest.findMany({
-    where: { employeeId },
-    include: payoutRequestDetails,
-    orderBy: { requestedAt: "desc" },
-  });
+export async function listEmployeePayoutRequests(employeeId, input = {}) {
+  const { page, pageSize, skip } = parsePagination(input);
+  const where = { employeeId };
+  const [items, total] = await Promise.all([
+    prisma.payoutRequest.findMany({
+      where,
+      select: employeePayoutSelection,
+      orderBy: [{ requestedAt: "desc" }, { id: "desc" }],
+      skip,
+      take: pageSize,
+    }),
+    prisma.payoutRequest.count({ where }),
+  ]);
+  return paginatedResult(items, total, page, pageSize);
 }
 
 export async function getEmployeePayoutSummary(employeeId) {
   const confirmedWorkWhere = { employeeId, status: "COMPLETED", approvedAt: { not: null } };
-  const [confirmedWorkCount, eligibleWorkCount, payoutRequests] = await Promise.all([
+  const [confirmedWorkCount, eligibleWorkCount, payoutGroups] = await Promise.all([
     prisma.workSubmission.count({ where: confirmedWorkWhere }),
     prisma.workSubmission.count({ where: { ...confirmedWorkWhere, payoutRequestId: null } }),
-    prisma.payoutRequest.findMany({
+    prisma.payoutRequest.groupBy({
+      by: ["status"],
       where: { employeeId },
-      select: { amount: true, workCount: true, status: true },
+      _count: { _all: true },
+      _count: { _all: true },
+      _sum: { amount: true, workCount: true },
     }),
   ]);
-
+  const paidGroup = payoutGroups.find((group) => group.status === "PAID");
+  const requestedWorkCount = payoutGroups.reduce((sum, group) => sum + (group._sum.workCount || 0), 0);
   return {
     payoutPerWork: PAYOUT_PER_WORK,
     worksPerPayout: WORKS_PER_PAYOUT,
@@ -134,21 +180,41 @@ export async function getEmployeePayoutSummary(employeeId) {
     confirmedWorkCount,
     eligibleWorkCount,
     eligibleAmount: eligibleWorkCount * PAYOUT_PER_WORK,
-    totalReceived: sumPaidPayoutAmounts(payoutRequests),
+    totalReceived: paidGroup?._sum.amount || 0,
     canRequestPayout: eligibleWorkCount >= WORKS_PER_PAYOUT,
-    requestedWorkCount: payoutRequests.reduce((sum, payout) => sum + payout.workCount, 0),
-    payoutRequests,
+    requestedWorkCount,
+    payoutRequestCount: payoutGroups.reduce((sum, group) => sum + group._count._all, 0),
   };
 }
 
-export function listAdminPayoutRequests() {
-  return prisma.payoutRequest.findMany({
-    include: {
-      ...payoutRequestDetails,
-      reviewer: { select: { id: true, name: true, email: true } },
-    },
-    orderBy: { requestedAt: "desc" },
-  });
+export async function listAdminPayoutRequests(input = {}) {
+  const { page, pageSize, skip } = parsePagination(input);
+  const search = String(input.search || "").trim();
+  const status = String(input.status || "").trim().toUpperCase();
+  const dateRange = input.from || input.to ? getFundingDateRange(input) : null;
+  const where = {
+    ...(status && status !== "ALL" ? { status } : {}),
+    ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
+    ...(search ? {
+      OR: [
+        { id: { contains: search, mode: "insensitive" } },
+        { employeeName: { contains: search, mode: "insensitive" } },
+        { employeePhone: { contains: search, mode: "insensitive" } },
+        { payoutBankName: { contains: search, mode: "insensitive" } },
+      ],
+    } : {}),
+  };
+  const [items, total] = await Promise.all([
+    prisma.payoutRequest.findMany({
+      where,
+      select: adminPayoutSelection,
+      orderBy: [{ requestedAt: "desc" }, { id: "desc" }],
+      skip,
+      take: pageSize,
+    }),
+    prisma.payoutRequest.count({ where }),
+  ]);
+  return paginatedResult(items, total, page, pageSize);
 }
 
 export async function decidePayoutRequest(requestId, reviewerId, decision, adminNote) {
@@ -156,7 +222,7 @@ export async function decidePayoutRequest(requestId, reviewerId, decision, admin
     throw createError("Decision must be APPROVED or REJECTED.", 400);
   }
 
-  return prisma.$transaction(async (transaction) => {
+  const decidedRequest = await prisma.$transaction(async (transaction) => {
     const payoutRequest = await transaction.payoutRequest.findUnique({
       where: { id: requestId },
       select: {
@@ -206,4 +272,21 @@ export async function decidePayoutRequest(requestId, reviewerId, decision, admin
       },
     });
   });
+
+  if (decision !== "APPROVED") return decidedRequest;
+
+  let smsNotification;
+  try {
+    smsNotification = await sendPayoutApprovalSms(decidedRequest);
+  } catch {
+    smsNotification = { status: "failed", reason: "unexpected_error" };
+  }
+  if (smsNotification.status !== "sent") {
+    console.error("Payout approval SMS was not sent.", {
+      payoutRequestId: requestId,
+      status: smsNotification.status,
+      reason: smsNotification.reason,
+    });
+  }
+  return { ...decidedRequest, smsNotification };
 }
