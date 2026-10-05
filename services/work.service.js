@@ -10,6 +10,15 @@ const paginationFor = (input = {}) => {
   return { page, pageSize, skip: (page - 1) * pageSize };
 };
 
+export function getPendingFirstPagePlan(skip, pageSize, pendingCount) {
+  const pendingTake = Math.max(0, Math.min(pageSize, pendingCount - skip));
+  return {
+    pendingTake,
+    reviewedSkip: Math.max(0, skip - pendingCount),
+    reviewedTake: pageSize - pendingTake,
+  };
+}
+
 export async function createWorkSubmission(input) {
   const employeeId = String(input.employeeId || "").trim();
   const fundingRequestId = String(input.fundingRequestId || "").trim();
@@ -192,31 +201,7 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
     ...(dateRange ? { submittedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
   };
   const where = { ...summaryWhere, ...(status ? { status } : {}) };
-  const [works, total, statusGroups, pendingEmployees, pendingPayouts] = await Promise.all([
-    prisma.workSubmission.findMany({
-    where,
-    select: {
-      id: true,
-      accountName: true,
-      accountCategory: true,
-      completedAt: true,
-      amount: true,
-      notes: true,
-      status: true,
-      submittedAt: true,
-      approvedAt: true,
-      updatedAt: true,
-      employeeId: true,
-      supervisorId: true,
-      fundingRequestId: true,
-      employee: { select: { id: true, name: true, phone: true } },
-      payment: true,
-      fundingRequest: { select: { id: true, status: true, amount: true, accountName: true, accountCategory: true } },
-    },
-    orderBy: { submittedAt: "desc" },
-    skip,
-    take: pageSize,
-    }),
+  const [total, statusGroups, pendingEmployees, pendingPayouts, pendingCount] = await Promise.all([
     prisma.workSubmission.count({ where }),
     prisma.workSubmission.groupBy({ by: ["status"], where: summaryWhere, _count: { _all: true } }),
     prisma.workSubmission.findMany({
@@ -227,7 +212,50 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
     prisma.workSubmission.count({
       where: { ...summaryWhere, payment: { is: { status: "PENDING" } } },
     }),
+    status && status !== "UNDER_REVIEW"
+      ? 0
+      : prisma.workSubmission.count({ where: { ...where, status: "UNDER_REVIEW" } }),
   ]);
+  const { pendingTake, reviewedSkip, reviewedTake } = getPendingFirstPagePlan(skip, pageSize, pendingCount);
+  const selection = {
+    id: true,
+    accountName: true,
+    accountCategory: true,
+    completedAt: true,
+    amount: true,
+    notes: true,
+    status: true,
+    submittedAt: true,
+    approvedAt: true,
+    updatedAt: true,
+    employeeId: true,
+    supervisorId: true,
+    fundingRequestId: true,
+    employee: { select: { id: true, name: true, phone: true } },
+    payment: true,
+    fundingRequest: { select: { id: true, status: true, amount: true, accountName: true, accountCategory: true } },
+  };
+  const [pendingWorks, reviewedWorks] = await Promise.all([
+    pendingTake > 0
+      ? prisma.workSubmission.findMany({
+          where: { ...where, status: "UNDER_REVIEW" },
+          select: selection,
+          orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+          skip,
+          take: pendingTake,
+        })
+      : [],
+    reviewedTake > 0
+      ? prisma.workSubmission.findMany({
+          where: status ? where : { ...where, status: { not: "UNDER_REVIEW" } },
+          select: selection,
+          orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+          skip: reviewedSkip,
+          take: reviewedTake,
+        })
+      : [],
+  ]);
+  const works = [...pendingWorks, ...reviewedWorks];
   const counts = Object.fromEntries(statusGroups.map((group) => [group.status, group._count._all]));
   const submitted = Object.values(counts).reduce((sum, count) => sum + count, 0);
   const underReview = counts.UNDER_REVIEW || 0;

@@ -21,6 +21,7 @@ export function normalizeFundingReportReason(input) {
 
 const eligibleFundingWhere = {
   approvedAt: { not: null },
+  work: null,
   status: { notIn: ["REFUND_PENDING", "REFUNDED"] },
   refunds: { none: { status: { in: ["PENDING_FUNDER_APPROVAL", "APPROVED"] } } },
 };
