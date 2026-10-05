@@ -5,7 +5,9 @@ import {
   getActiveApprovedFundingWhere,
   getConfirmedFundingWhere,
   getConfirmedFundingPeriodWhere,
+  getFunderAttendedWhere,
   getFunderOverviewWhere,
+  getUnusedApprovedFundingWhere,
   getFundingRequestBlockReason,
   hasUnsubmittedApprovedFundingRequest,
   requestsSinceCompletedBatch,
@@ -183,6 +185,16 @@ test("active approved funding summary excludes all reported or refunded requests
   });
 });
 
+test("unused approved funding excludes requests with linked work or report/refund activity", () => {
+  assert.deepEqual(getUnusedApprovedFundingWhere({ funderId: "funder-1" }), {
+    funderId: "funder-1",
+    status: "APPROVED",
+    reports: { none: {} },
+    refunds: { none: {} },
+    work: null,
+  });
+});
+
 test("confirmed funding totals retain approvals regardless of later reports or refunds", () => {
   assert.deepEqual(getConfirmedFundingWhere({ funderId: "funder-1" }), {
     funderId: "funder-1",
@@ -190,12 +202,20 @@ test("confirmed funding totals retain approvals regardless of later reports or r
   });
 });
 
-test("funder overview retains pending and all ever-approved funding records", () => {
+test("funder overview only includes requests awaiting a funder decision", () => {
   assert.deepEqual(getFunderOverviewWhere("funder-1"), {
     funderId: "funder-1",
+    status: "PENDING_FUNDER_APPROVAL",
+    work: null,
+  });
+});
+
+test("recent funder requests only include requests already attended to", () => {
+  assert.deepEqual(getFunderAttendedWhere("funder-1"), {
+    funderId: "funder-1",
     OR: [
-      { status: "PENDING_FUNDER_APPROVAL" },
-      { approvedAt: { not: null } },
+      { status: { not: "PENDING_FUNDER_APPROVAL" } },
+      { work: { isNot: null } },
     ],
   });
 });

@@ -128,6 +128,13 @@ export function getActiveApprovedFundingWhere(where = {}) {
   };
 }
 
+export function getUnusedApprovedFundingWhere(where = {}) {
+  return {
+    ...getActiveApprovedFundingWhere(where),
+    work: null,
+  };
+}
+
 export function getConfirmedFundingWhere(where = {}) {
   return {
     ...where,
@@ -138,9 +145,17 @@ export function getConfirmedFundingWhere(where = {}) {
 export function getFunderOverviewWhere(funderId) {
   return {
     funderId,
+    status: "PENDING_FUNDER_APPROVAL",
+    work: null,
+  };
+}
+
+export function getFunderAttendedWhere(funderId) {
+  return {
+    funderId,
     OR: [
-      { status: "PENDING_FUNDER_APPROVAL" },
-      { approvedAt: { not: null } },
+      { status: { not: "PENDING_FUNDER_APPROVAL" } },
+      { work: { isNot: null } },
     ],
   };
 }
@@ -355,7 +370,13 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
 
 export async function listFunderFundingRequests(funderId, input = {}) {
   const { page, pageSize, skip } = parsePagination(input);
-  const where = input.view === "overview" ? getFunderOverviewWhere(funderId) : { funderId };
+  const where = input.view === "overview"
+    ? getFunderOverviewWhere(funderId)
+    : input.view === "attended"
+      ? getFunderAttendedWhere(funderId)
+      : input.view === "unused"
+        ? getUnusedApprovedFundingWhere({ funderId })
+      : { funderId };
   const [items, total] = await Promise.all([
     prisma.fundingRequest.findMany({
       where,
@@ -383,10 +404,12 @@ export async function listFunderFundingRequests(funderId, input = {}) {
           },
         }),
       },
-      orderBy: [
-        { lastStatusChangedAt: { sort: "desc", nulls: "last" } },
-        { requestedAt: "desc" },
-      ],
+      orderBy: input.view === "overview"
+        ? [{ requestedAt: "desc" }]
+        : [
+          { lastStatusChangedAt: { sort: "desc", nulls: "last" } },
+          { requestedAt: "desc" },
+        ],
       skip,
       take: pageSize,
     }),
@@ -408,15 +431,29 @@ export async function listFunderFundingRequests(funderId, input = {}) {
 
 export async function getFunderFundingSummary(funderId, input = {}) {
   const dateRange = getFundingDateRange(input);
-  const summary = await fundingSummary({ funderId });
-  if (!dateRange) return summary;
+  const [summary, unusedFunding] = await Promise.all([
+    fundingSummary({ funderId }),
+    prisma.fundingRequest.aggregate({
+      where: getUnusedApprovedFundingWhere({ funderId }),
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
+  ]);
+  const summaryWithUnusedFunding = {
+    ...summary,
+    unusedFunding: {
+      count: unusedFunding._count._all,
+      amount: unusedFunding._sum.amount || 0,
+    },
+  };
+  if (!dateRange) return summaryWithUnusedFunding;
   const funded = await prisma.fundingRequest.aggregate({
     where: getConfirmedFundingPeriodWhere(funderId, dateRange),
     _count: { _all: true },
     _sum: { amount: true },
   });
   return {
-    ...summary,
+    ...summaryWithUnusedFunding,
     fundedPeriod: {
       from: dateRange.from,
       to: dateRange.to,
