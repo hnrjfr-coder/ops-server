@@ -117,7 +117,7 @@ Create an employee funding request with a fixed package selection:
 
 The backend resolves the amount automatically from the package table. For
 `SWAGGZ`, `METROFLEX`, and `MONETIZE`, `SUBSCRIPTION` is `42000` and
-`RENEWAL` is `49500`. For `NEILA`, `SUBSCRIPTION` is `35000` and `RENEWAL`
+`RENEWAL` is `49500`. For `NEILA`, `SUBSCRIPTION` is `35500` and `RENEWAL`
 is `42000`.
 
 A funder approves or rejects it with `PATCH /api/funder/requests/:requestId`:
@@ -186,7 +186,7 @@ as funder. Hide both selectors for other account types. Funder-to-supervisor
 setup is Blessing -> Peace and Queen -> Willis; the selectable values must
 come from the API, not hard-coded IDs or names.
 
-Employee funding: show a fixed-price selector with accountName and accountCategory. The accountName options are SWAGGZ, METROFLEX, MONETIZE, and NEILA. The accountCategory options are SUBSCRIPTION and RENEWAL. Use the fixed lookup table: SWAGGZ/METROFLEX/MONETIZE => SUBSCRIPTION 42000, RENEWAL 49500; NEILA => SUBSCRIPTION 35000, RENEWAL 42000. POST { accountName, accountCategory } to /api/funding-requests. Do not let the user type an amount or purpose. Show request history from GET /api/funding-requests?page=1&pageSize=20 and status totals from GET /api/funding-requests/summary. Support pagination using the returned pagination fields. Explain in the UI that funder approval reserves funds but does not itself transfer money.
+Employee funding: show a fixed-price selector with accountName and accountCategory. The accountName options are SWAGGZ, METROFLEX, MONETIZE, and NEILA. The accountCategory options are SUBSCRIPTION and RENEWAL. Use the fixed lookup table: SWAGGZ/METROFLEX/MONETIZE => SUBSCRIPTION 42000, RENEWAL 49500; NEILA => SUBSCRIPTION 35500, RENEWAL 42000. POST { accountName, accountCategory } to /api/funding-requests. Do not let the user type an amount or purpose. Show request history from GET /api/funding-requests?page=1&pageSize=20 and status totals from GET /api/funding-requests/summary. Support pagination using the returned pagination fields. Explain in the UI that funder approval reserves funds but does not itself transfer money.
 
 Funder dashboard: load GET /api/funder/summary and paginated
 GET /api/funder/requests?page=1&pageSize=20. Show the requesting employee,
