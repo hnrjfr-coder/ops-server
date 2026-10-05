@@ -275,7 +275,13 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
 
 export function getSupervisorEmployees(supervisorId) {
   return prisma.user.findMany({
-    where: { managerId: supervisorId, accountType: "EMPLOYEE" },
+    where: {
+      accountType: "EMPLOYEE",
+      OR: [
+        { managerId: supervisorId },
+        { work: { some: { supervisorId } } },
+      ],
+    },
     select: {
       id: true,
       name: true,

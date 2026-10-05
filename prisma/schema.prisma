@@ -26,6 +26,7 @@ model User {
   adminApprovedEmployees      User[]           @relation("EmployeeAdminApproval")
   funderId                    String?
   funder                      User?            @relation("FunderSupervisors", fields: [funderId], references: [id], onDelete: SetNull)
+  manualSupervisorRouting     Boolean          @default(false)
   supervisors                 User[]           @relation("FunderSupervisors")
   supervisor                  String?
   accountType                 String           @default("EMPLOYEE")
@@ -99,8 +100,8 @@ model FundingRequest {
   employee        User            @relation("FundingRequestEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
   funderId        String
   funder          User            @relation("FundingRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
-  supervisorId    String
-  supervisor      User            @relation("FundingRequestSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  supervisorId    String?
+  supervisor      User?           @relation("FundingRequestSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
   accountName     String?
   accountCategory String?
   amount          Int

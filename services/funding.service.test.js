@@ -7,6 +7,8 @@ import {
   getConfirmedFundingPeriodWhere,
   getFunderAttendedWhere,
   getFunderOverviewWhere,
+  getFundingRequestSupervisorId,
+  resolveFundingApprovalSupervisorId,
   getUnusedApprovedFundingWhere,
   getFundingRequestBlockReason,
   hasUnsubmittedApprovedFundingRequest,
@@ -218,6 +220,64 @@ test("recent funder requests only include requests already attended to", () => {
       { work: { isNot: null } },
     ],
   });
+});
+
+test("manual-routing funder creates funding requests without a supervisor assignment", () => {
+  assert.equal(getFundingRequestSupervisorId({ manager: null }, {
+    id: "funder-manual",
+    manualSupervisorRouting: true,
+  }), null);
+});
+
+test("standard funder requests retain their employee supervisor assignment", () => {
+  assert.equal(getFundingRequestSupervisorId({
+    manager: {
+      id: "supervisor-1",
+      status: "ACTIVE",
+      accountType: "SUPERVISOR",
+      funder: { id: "funder-standard" },
+    },
+  }, {
+    id: "funder-standard",
+    manualSupervisorRouting: false,
+  }), "supervisor-1");
+});
+
+test("standard funder request creation rejects supervisors linked to another funder", () => {
+  assert.throws(
+    () => getFundingRequestSupervisorId({
+      manager: {
+        id: "supervisor-1",
+        status: "ACTIVE",
+        accountType: "SUPERVISOR",
+        funder: { id: "different-funder" },
+      },
+    }, {
+      id: "funder-standard",
+      manualSupervisorRouting: false,
+    }),
+    { statusCode: 409 },
+  );
+});
+
+test("manual-routing approval requires a selected active supervisor", () => {
+  assert.equal(resolveFundingApprovalSupervisorId(true, "supervisor-1", "supervisor-1"), "supervisor-1");
+  assert.throws(
+    () => resolveFundingApprovalSupervisorId(true, "", undefined),
+    { statusCode: 400 },
+  );
+  assert.throws(
+    () => resolveFundingApprovalSupervisorId(true, "inactive-supervisor", undefined),
+    { statusCode: 400 },
+  );
+});
+
+test("standard funder approvals reject a supervisor override", () => {
+  assert.equal(resolveFundingApprovalSupervisorId(false, "", undefined), null);
+  assert.throws(
+    () => resolveFundingApprovalSupervisorId(false, "supervisor-1", undefined),
+    { statusCode: 400 },
+  );
 });
 
 test("pending refunds or reports block new funding; decisions release their slots", () => {

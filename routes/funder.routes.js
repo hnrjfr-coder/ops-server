@@ -1,11 +1,19 @@
 import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
-import { decideFundingRequest, getFunderFundingSummary, listFunderFundingRequests } from "../services/funding.service.js";
+import { decideFundingRequest, getFunderFundingSummary, listActiveFundingSupervisors, listFunderFundingRequests } from "../services/funding.service.js";
 import { decideRefundRequest, getFunderRefundAccount, listFunderRefundRequests, updateFunderRefundAccount } from "../services/refund.service.js";
 import { decideFundingReport, listFunderFundingReports } from "../services/funding-report.service.js";
 
 export const funderRouter = Router();
 funderRouter.use(requireAuthenticatedAccountType("FUNDER"));
+
+funderRouter.get("/supervisors", async (_request, response, next) => {
+  try {
+    response.json(await listActiveFundingSupervisors());
+  } catch (error) {
+    next(error);
+  }
+});
 
 funderRouter.get("/refund-account", async (request, response, next) => {
   try {
@@ -70,6 +78,7 @@ funderRouter.patch("/requests/:requestId", async (request, response, next) => {
       request.params.requestId,
       String(request.body.decision || "").toUpperCase(),
       request.body.transferConfirmed === true,
+      String(request.body.supervisorId || ""),
     );
     response.json(result);
   } catch (error) {

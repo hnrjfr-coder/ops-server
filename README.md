@@ -39,7 +39,10 @@ created under the dedicated `ops` schema, leaving other schemas untouched.
 - `POST /api/funding-requests`
 - `GET /api/funder/summary`
 - `GET /api/funder/requests?page=1&pageSize=20`
+- `GET /api/funder/supervisors`
 - `PATCH /api/funder/requests/:requestId`
+- `GET /api/admin/funders`
+- `PATCH /api/admin/funders/:funderId/routing`
 - `GET /api/admin/analytics?period=day|month|year&from=YYYY-MM-DD&to=YYYY-MM-DD`
 - `GET /api/works`
 - `POST /api/works` with an approved `fundingRequestId`
@@ -126,6 +129,13 @@ A funder approves or rejects it with `PATCH /api/funder/requests/:requestId`:
 { "decision": "APPROVED" }
 ```
 
+For funders configured with manual supervisor routing, an approval must also
+include `supervisorId` for an active supervisor:
+
+```json
+{ "decision": "APPROVED", "supervisorId": "active-supervisor-id" }
+```
+
 After approval, the employee submits the work with:
 
 ```json
@@ -146,7 +156,12 @@ records keep their original category values; only new submissions use the two
 current account categories.
 
 Registration options include active `supervisors` and `funders`. Employees
-choose a supervisor; new supervisors choose their funder. Funder accounts are
+choose a funder. For regular funders, the backend assigns the funder's sole
+active supervisor and blocks signup if there are zero or multiple active
+supervisors. A funder with `manualSupervisorRouting` enabled does not assign a
+default employee supervisor; that funder chooses an active supervisor for each
+funding approval. The assignment is stored on the funding request and routes
+only the work submitted against that request. New supervisors choose their funder. Funder accounts are
 provisioned by an administrator and cannot be created through public signup.
 Set Blessing and Queen up as `FUNDER` profiles, then create Peace and Willis as
 `SUPERVISOR` profiles. Assign Peace to Blessing and Willis to Queen. Existing
@@ -179,10 +194,10 @@ can derive them from the authenticated user.
 
 Registration: load GET /api/auth/options. Remove INVESTOR as a public account
 type. FUNDER is a provisioned role, not a public signup choice. For EMPLOYEE
-registration, require a supervisor selected from options.supervisors and
-submit its ID as supervisor. For SUPERVISOR
 registration, require a funder selected from options.funders and submit its ID
-as funder. Hide both selectors for other account types. Funder-to-supervisor
+as funder. The backend derives and assigns the funder's sole active supervisor;
+disable funder options with zero or multiple active supervisors unless the
+funder has manual supervisor routing enabled. Funder-to-supervisor
 setup is Blessing -> Peace and Queen -> Willis; the selectable values must
 come from the API, not hard-coded IDs or names.
 
@@ -251,10 +266,13 @@ Registration request body:
 }
 ```
 
-Public registration account types are `EMPLOYEE`, `SUPERVISOR`, and `ADMIN`.
-`FUNDER` profiles are provisioned by an administrator. Employee registrations
-choose a supervisor. Supervisor registrations choose a funder. Other account
-types omit both fields.
+Public registration creates `EMPLOYEE` accounts only. `FUNDER` profiles are
+provisioned by an administrator. Employees select a funder; regular funders
+assign their sole active supervisor at signup, while funders configured for
+manual supervisor routing select from all active supervisors on every funding
+approval. That choice is stored on the funding request and routes its work
+submission; it does not change the employee's default supervisor. Admins
+configure this setting in the Funders page.
 
 The frontend sends this through `src/lib/api.js` to `POST http://localhost:4000/api/auth/register`.
 

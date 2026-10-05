@@ -67,6 +67,78 @@ export async function listAdminStaff() {
   return { employees, employeeCount, activeEmployeeCount };
 }
 
+export async function listAdminFunders() {
+  const [funders, activeSupervisors] = await Promise.all([
+    prisma.user.findMany({
+      where: { accountType: "FUNDER" },
+      orderBy: [{ name: "asc" }, { email: "asc" }],
+      select: { id: true, name: true, email: true, status: true, manualSupervisorRouting: true },
+    }),
+    prisma.user.findMany({
+      where: { accountType: "SUPERVISOR", status: "ACTIVE" },
+      select: { id: true, name: true, funderId: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  return funders.map((funder) => ({
+    ...funder,
+    supervisors: activeSupervisors.filter((supervisor) => supervisor.funderId === funder.id),
+  }));
+}
+
+export async function updateAdminFunderRouting(funderId, enabled) {
+  if (typeof enabled !== "boolean") {
+    const error = new Error("manualSupervisorRouting must be a boolean.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return prisma.$transaction(async (transaction) => {
+    const funder = await transaction.user.findFirst({
+      where: { id: funderId, accountType: "FUNDER" },
+      select: { id: true, manualSupervisorRouting: true },
+    });
+    if (!funder) {
+      const error = new Error("Funder was not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    if (!enabled && funder.manualSupervisorRouting) {
+      const linkedSupervisors = await transaction.user.findMany({
+        where: { funderId, accountType: "SUPERVISOR", status: "ACTIVE" },
+        select: { id: true },
+      });
+      const unassignedEmployees = await transaction.user.count({
+        where: { funderId, accountType: "EMPLOYEE", managerId: null },
+      });
+      const pendingUnassignedRequests = await transaction.fundingRequest.count({
+        where: { funderId, status: "PENDING_FUNDER_APPROVAL", supervisorId: null },
+      });
+      if ((unassignedEmployees > 0 || pendingUnassignedRequests > 0) && linkedSupervisors.length !== 1) {
+        const error = new Error("Assign one active default supervisor to this funder before disabling manual supervisor routing.");
+        error.statusCode = 409;
+        throw error;
+      }
+      if (unassignedEmployees > 0) {
+        await transaction.user.updateMany({
+          where: { funderId, accountType: "EMPLOYEE", managerId: null },
+          data: { managerId: linkedSupervisors[0].id, supervisor: linkedSupervisors[0].id },
+        });
+      }
+      if (pendingUnassignedRequests > 0) {
+        await transaction.fundingRequest.updateMany({
+          where: { funderId, status: "PENDING_FUNDER_APPROVAL", supervisorId: null },
+          data: { supervisorId: linkedSupervisors[0].id },
+        });
+      }
+    }
+    return transaction.user.update({
+      where: { id: funderId },
+      data: { manualSupervisorRouting: enabled },
+      select: { id: true, name: true, email: true, status: true, manualSupervisorRouting: true },
+    });
+  });
+}
+
 export async function approveEmployeeAccount(employeeId, adminId) {
   const result = await prisma.user.updateMany({
     where: { id: employeeId, accountType: "EMPLOYEE", status: "PENDING_ADMIN_APPROVAL" },

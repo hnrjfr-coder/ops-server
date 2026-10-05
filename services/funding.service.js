@@ -135,6 +135,39 @@ export function getUnusedApprovedFundingWhere(where = {}) {
   };
 }
 
+export function getFundingRequestSupervisorId(employee, funder) {
+  if (funder.manualSupervisorRouting) return null;
+  const supervisor = employee.manager;
+  if (!supervisor || supervisor.accountType !== "SUPERVISOR" || supervisor.status !== "ACTIVE") {
+    const error = new Error("An active supervisor must be assigned before requesting funding.");
+    error.statusCode = 409;
+    throw error;
+  }
+  if (supervisor.funder?.id !== funder.id) {
+    const error = new Error("The employee's supervisor is not assigned to the selected funder.");
+    error.statusCode = 409;
+    throw error;
+  }
+  return supervisor.id;
+}
+
+export function resolveFundingApprovalSupervisorId(manualSupervisorRouting, selectedSupervisorId, activeSupervisorId) {
+  if (!manualSupervisorRouting) {
+    if (selectedSupervisorId) {
+      const error = new Error("A supervisor may only be selected for funders using manual supervisor routing.");
+      error.statusCode = 400;
+      throw error;
+    }
+    return null;
+  }
+  if (!selectedSupervisorId || selectedSupervisorId !== activeSupervisorId) {
+    const error = new Error("Select an active supervisor for this funding request.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return activeSupervisorId;
+}
+
 export function getConfirmedFundingWhere(where = {}) {
   return {
     ...where,
@@ -206,12 +239,15 @@ export async function createFundingRequest(employeeId, input) {
       id: true,
       accountType: true,
       status: true,
+      funder: {
+        select: { id: true, accountType: true, status: true, manualSupervisorRouting: true },
+      },
       manager: {
         select: {
           id: true,
           accountType: true,
           status: true,
-          funder: { select: { id: true, accountType: true, status: true } },
+          funder: { select: { id: true, accountType: true, status: true, manualSupervisorRouting: true } },
         },
       },
     },
@@ -221,17 +257,13 @@ export async function createFundingRequest(employeeId, input) {
     error.statusCode = 404;
     throw error;
   }
-  if (!employee.manager || employee.manager.accountType !== "SUPERVISOR" || employee.manager.status !== "ACTIVE") {
-    const error = new Error("An active supervisor must be assigned before requesting funding.");
-    error.statusCode = 409;
-    throw error;
-  }
-  const funder = employee.manager.funder;
+  const funder = employee.funder || employee.manager?.funder;
   if (!funder || funder.accountType !== "FUNDER" || funder.status !== "ACTIVE") {
     const error = new Error("The assigned supervisor does not have an active funder.");
     error.statusCode = 409;
     throw error;
   }
+  const supervisorId = getFundingRequestSupervisorId(employee, funder);
 
   const fundingCycleRequests = await transaction.fundingRequest.findMany({
     where: { employeeId },
@@ -265,7 +297,7 @@ export async function createFundingRequest(employeeId, input) {
   return transaction.fundingRequest.create({
     data: {
       employeeId,
-      supervisorId: employee.manager.id,
+      supervisorId,
       funderId: funder.id,
       accountName,
       accountCategory,
@@ -390,6 +422,7 @@ export async function listFunderFundingRequests(funderId, input = {}) {
           fundingAccountNumber: true,
         } },
         supervisor: { select: { id: true, name: true } },
+        funder: { select: { id: true, manualSupervisorRouting: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
         ...(input.view !== "overview" && {
           refunds: {
@@ -515,7 +548,15 @@ export async function getSupervisorFundingSummary(supervisorId, input = {}) {
   return { ...summary, pendingRequestUserCount: pendingUsers.length };
 }
 
-export async function decideFundingRequest(funderId, requestId, decision, transferConfirmed = false) {
+export async function listActiveFundingSupervisors() {
+  return prisma.user.findMany({
+    where: { accountType: "SUPERVISOR", status: "ACTIVE" },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function decideFundingRequest(funderId, requestId, decision, transferConfirmed = false, selectedSupervisorId = "") {
   if (!["APPROVED", "REJECTED"].includes(decision)) {
     const error = new Error("Decision must be APPROVED or REJECTED.");
     error.statusCode = 400;
@@ -528,10 +569,13 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
   }
   const decidedAt = new Date();
   return prisma.$transaction(async (transaction) => {
+    let assignedSupervisorId;
     if (decision === "APPROVED") {
       const pendingRequest = await transaction.fundingRequest.findFirst({
         where: { id: requestId, funderId, status: "PENDING_FUNDER_APPROVAL" },
         select: {
+          funder: { select: { manualSupervisorRouting: true } },
+          supervisorId: true,
           employee: {
             select: {
               fundingBankName: true,
@@ -552,6 +596,36 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
         error.statusCode = 409;
         throw error;
       }
+      if (pendingRequest?.funder.manualSupervisorRouting) {
+        const supervisor = await transaction.user.findFirst({
+          where: {
+            id: String(selectedSupervisorId || "").trim(),
+            accountType: "SUPERVISOR",
+            status: "ACTIVE",
+          },
+          select: { id: true },
+        });
+        assignedSupervisorId = resolveFundingApprovalSupervisorId(
+          true,
+          String(selectedSupervisorId || "").trim(),
+          supervisor?.id,
+        );
+      } else if (pendingRequest) {
+        resolveFundingApprovalSupervisorId(false, String(selectedSupervisorId || "").trim(), undefined);
+        const supervisor = await transaction.user.findFirst({
+          where: {
+            id: pendingRequest.supervisorId || "",
+            accountType: "SUPERVISOR",
+            status: "ACTIVE",
+          },
+          select: { id: true },
+        });
+        if (!supervisor) {
+          const error = new Error("The assigned supervisor is not active. Contact an administrator before approving this request.");
+          error.statusCode = 409;
+          throw error;
+        }
+      }
     }
 
     const updated = await transaction.fundingRequest.updateMany({
@@ -560,6 +634,7 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
         status: decision === "APPROVED" ? "APPROVED" : "FUNDER_REJECTED",
         approvedAt: decision === "APPROVED" ? decidedAt : null,
         lastStatusChangedAt: decidedAt,
+        ...(assignedSupervisorId ? { supervisorId: assignedSupervisorId } : {}),
       },
     });
     if (updated.count !== 1) {
@@ -581,6 +656,7 @@ export async function decideFundingRequest(funderId, requestId, decision, transf
       include: {
         employee: { select: { id: true, name: true, phone: true } },
         supervisor: { select: { id: true, name: true } },
+        funder: { select: { id: true, manualSupervisorRouting: true } },
       },
     });
     if (!result) {
