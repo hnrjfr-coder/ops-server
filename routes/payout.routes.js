@@ -2,10 +2,12 @@ import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
 import {
   createEmployeePayoutRequest,
+  createManualPayout,
   decidePayoutRequest,
   getEmployeePayoutSummary,
   listAdminPayoutRequests,
   listEmployeePayoutRequests,
+  searchAdminPayoutEmployees,
 } from "../services/payout.service.js";
 
 export const payoutRouter = Router();
@@ -38,6 +40,27 @@ payoutRouter.post("/requests", requireAuthenticatedAccountType("EMPLOYEE"), asyn
 payoutRouter.get("/admin/requests", requireAuthenticatedAccountType("ADMIN"), async (request, response, next) => {
   try {
     response.json(await listAdminPayoutRequests(request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+payoutRouter.get("/admin/employees", requireAuthenticatedAccountType("ADMIN"), async (request, response, next) => {
+  try {
+    response.json(await searchAdminPayoutEmployees(request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+payoutRouter.post("/admin/manual", requireAuthenticatedAccountType("ADMIN"), async (request, response, next) => {
+  try {
+    const payout = await createManualPayout(
+      String(request.body?.employeeId || ""),
+      request.authUser.id,
+      request.body || {},
+    );
+    response.status(201).json(payout);
   } catch (error) {
     next(error);
   }

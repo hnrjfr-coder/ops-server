@@ -10,6 +10,7 @@ import {
   getFundingRequestSupervisorId,
   getUnusedApprovedFundingWhere,
   getFundingRequestBlockReason,
+  isFundingRequestWindowOpen,
   hasUnsubmittedApprovedFundingRequest,
   requestsSinceCompletedBatch,
 } from "./funding.service.js";
@@ -19,6 +20,13 @@ import { getInitialAccountStatus } from "./auth.service.js";
 import { isFundingRequestEligibleForWork } from "./work.service.js";
 
 const statuses = (...values) => values.map((status) => ({ status }));
+
+test("funding requests are available from 8 AM inclusive until 10 PM Nigeria time", () => {
+  assert.equal(isFundingRequestWindowOpen(new Date("2026-10-06T06:59:00.000Z")), false);
+  assert.equal(isFundingRequestWindowOpen(new Date("2026-10-06T07:00:00.000Z")), true);
+  assert.equal(isFundingRequestWindowOpen(new Date("2026-10-06T20:59:00.000Z")), true);
+  assert.equal(isFundingRequestWindowOpen(new Date("2026-10-06T21:00:00.000Z")), false);
+});
 
 test("four active requests fill the current cycle", () => {
   assert.equal(

@@ -264,15 +264,41 @@ export async function getEarnings(employeeId, input = {}) {
 
 export async function getSupervisorWorks(supervisorId, input = {}) {
   const { page, pageSize, skip } = paginationFor(input);
-  const dateRange = getFundingDateRange(input);
+  const from = String(input.from || "");
+  const to = String(input.to || "");
+  const dateRange = from || to
+    ? getFundingDateRange({ from: from || to, to: to || from })
+    : null;
   const status = String(input.status || "").trim();
+  const queueView = input.view === "queue";
+  const search = String(input.search || "").trim();
+  const submittedAt = dateRange
+    ? {
+        ...(from ? { gte: dateRange.start } : {}),
+        ...(to ? { lt: dateRange.endExclusive } : {}),
+      }
+    : undefined;
   const summaryWhere = {
     supervisorId,
-    ...(dateRange ? { submittedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
+    ...(submittedAt ? { submittedAt } : {}),
   };
-  const where = { ...summaryWhere, ...(status ? { status } : {}) };
+  const where = {
+    ...summaryWhere,
+    ...(queueView ? { status: "UNDER_REVIEW" } : status ? { status } : {}),
+    ...(search ? {
+      OR: [
+        { accountName: { contains: search, mode: "insensitive" } },
+        { accountCategory: { contains: search, mode: "insensitive" } },
+        { employee: { is: { name: { contains: search, mode: "insensitive" } } } },
+        { employee: { is: { phone: { contains: search, mode: "insensitive" } } } },
+      ],
+    } : {}),
+  };
   const pendingDateFilter = dateRange
-    ? Prisma.sql`AND "submittedAt" >= ${dateRange.start} AND "submittedAt" < ${dateRange.endExclusive}`
+    ? Prisma.sql`
+      ${from ? Prisma.sql`AND "submittedAt" >= ${dateRange.start}` : Prisma.empty}
+      ${to ? Prisma.sql`AND "submittedAt" < ${dateRange.endExclusive}` : Prisma.empty}
+    `
     : Prisma.empty;
   const [total, statusGroups, pendingEmployees, pendingPayouts, pendingCount] = await Promise.all([
     prisma.workSubmission.count({ where }),
@@ -310,8 +336,17 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
     payment: { select: { id: true, status: true, requestedAt: true, processedAt: true } },
     fundingRequest: { select: { id: true, status: true, amount: true, accountName: true, accountCategory: true } },
   };
+  const recordsView = input.view === "records";
   const [pendingWorks, reviewedWorks] = await Promise.all([
-    pendingTake > 0
+    recordsView || queueView
+      ? prisma.workSubmission.findMany({
+          where,
+          select: selection,
+          orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+          skip,
+          take: pageSize,
+        })
+      : pendingTake > 0
       ? prisma.workSubmission.findMany({
           where: { ...where, status: "UNDER_REVIEW" },
           select: selection,
@@ -320,7 +355,9 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
           take: pendingTake,
         })
       : [],
-    reviewedTake > 0
+    recordsView || queueView
+      ? []
+      : reviewedTake > 0
       ? prisma.workSubmission.findMany({
           where: status ? where : { ...where, status: { not: "UNDER_REVIEW" } },
           select: selection,

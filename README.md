@@ -49,6 +49,8 @@ created under the dedicated `ops` schema, leaving other schemas untouched.
 - `GET /api/payouts/requests`
 - `POST /api/payouts/requests`
 - `GET /api/payouts/admin/requests` (admin only)
+- `GET /api/payouts/admin/employees?search=...` (admin only)
+- `POST /api/payouts/admin/manual` (admin only)
 - `PATCH /api/payouts/admin/requests/:requestId` (admin only)
 - `GET /api/supervisor/works`
 - `GET /api/supervisor/funding-summary`
@@ -93,6 +95,16 @@ The request uses a Bearer token and JSON fields `from`, `to`, and `body`.
 Delivery failures do not undo a payout decision: the admin response includes
 `smsNotification.status` (`sent`, `failed`, `invalid_phone`, or
 `not_configured`), and failures are logged with the payout request ID.
+
+Admins can record an off-platform transfer with
+`GET /api/payouts/admin/employees?search=...` to find an active employee by
+name, then `POST /api/payouts/admin/manual` with
+`{ "employeeId": "...", "amount": 25000, "adminNote": "..." }`. This creates a
+`PAID` payout record with no attached work, snapshots the employee's payout
+account details, attributes it to the admin, and sends the same SMS
+notification. Use this endpoint only after completing the transfer externally;
+it records the payment but does not initiate a bank transfer. Manual payouts
+appear in the employee payout history and paid totals.
 
 ## Admin analytics
 

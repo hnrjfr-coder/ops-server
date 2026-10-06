@@ -11,12 +11,30 @@ const fixedFundingAmounts = {
   NEILA: { SUBSCRIPTION: 35500, RENEWAL: 42000 },
 };
 const MAX_FUNDING_REQUESTS_PER_CYCLE = 4;
+const FUNDING_REQUEST_TIME_ZONE = "Africa/Lagos";
 const hasPendingRefundOrReport = (request) =>
   [...(request.refunds || []), ...(request.reports || [])]
     .some((activity) => activity.status === "PENDING_FUNDER_APPROVAL");
 const hasDecidedRefundOrReport = (request) =>
   [...(request.refunds || []), ...(request.reports || [])]
     .some((activity) => ["APPROVED", "REJECTED"].includes(activity.status));
+
+export function isFundingRequestWindowOpen(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: FUNDING_REQUEST_TIME_ZONE,
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+  return hour >= 8 && hour < 22;
+}
+
+function assertFundingRequestWindowOpen(date = new Date()) {
+  if (isFundingRequestWindowOpen(date)) return;
+  const error = new Error("Funding requests are available daily from 8:00 AM to 10:00 PM Nigeria time.");
+  error.statusCode = 403;
+  throw error;
+}
 
 export const requestsSinceCompletedBatch = (requests) => {
   const cycleRequests = requests.filter((request) =>
@@ -210,11 +228,13 @@ async function fundingSummary(where) {
 }
 
 export async function createFundingRequest(employeeId, input) {
+  assertFundingRequestWindowOpen();
   const selectedAccountName = input.accountName ?? input.account ?? null;
   const selectedAccountCategory = input.accountCategory ?? input.purpose ?? null;
   const { accountName, accountCategory, amount } = resolveFixedAmount(selectedAccountName, selectedAccountCategory);
 
   return prisma.$transaction(async (transaction) => {
+  assertFundingRequestWindowOpen();
   await transaction.$queryRaw`SELECT "id" FROM "ops"."User" WHERE "id" = ${employeeId} FOR UPDATE`;
   const employee = await transaction.user.findUnique({
     where: { id: employeeId },
@@ -273,6 +293,7 @@ export async function createFundingRequest(employeeId, input) {
     throw error;
   }
 
+  assertFundingRequestWindowOpen();
   const requestedAt = new Date();
   return transaction.fundingRequest.create({
     data: {
@@ -348,7 +369,7 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
     employeeId,
     ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
   };
-  const [summary, cycleRows] = await Promise.all([
+  const [summary, cycleRows, employee] = await Promise.all([
     fundingSummary(summaryWhere),
     prisma.$queryRaw`
     WITH request_state AS (
@@ -440,6 +461,12 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
       END AS "fundingRequestBlockReason"
     FROM reset_point, cycle_counts, cycle_flags, activity_flags
     `,
+    prisma.user.findUnique({
+      where: { id: employeeId },
+      select: {
+        manager: { select: { name: true, phone: true } },
+      },
+    }),
   ]);
   const [cycleState] = cycleRows;
   const fundingCycleRequestCount = cycleState.fundingCycleRequestCount;
@@ -450,6 +477,9 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
   const fundingRequestCycleLimitReached = fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE;
   return {
     ...summary,
+    supervisor: employee?.manager
+      ? { name: employee.manager.name, phone: employee.manager.phone }
+      : null,
     maxFundingRequestsPerCycle: MAX_FUNDING_REQUESTS_PER_CYCLE,
     fundingCycleRequestCount,
     fundingRequestAwaitingWork,

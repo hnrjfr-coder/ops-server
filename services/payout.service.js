@@ -27,6 +27,18 @@ function createError(message, statusCode) {
   return error;
 }
 
+export function parseManualPayoutAmount(input) {
+  const value = typeof input === "string" ? input.trim() : input;
+  if (typeof value === "string" && !/^\d+$/.test(value)) {
+    throw createError("Enter a whole-number payout amount greater than zero.", 400);
+  }
+  const amount = Number(value);
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 2_147_483_647) {
+    throw createError("Enter a whole-number payout amount greater than zero.", 400);
+  }
+  return amount;
+}
+
 const workSelection = {
   id: true,
   accountName: true,
@@ -215,6 +227,96 @@ export async function listAdminPayoutRequests(input = {}) {
     prisma.payoutRequest.count({ where }),
   ]);
   return paginatedResult(items, total, page, pageSize);
+}
+
+export async function searchAdminPayoutEmployees(input = {}) {
+  const search = String(input.search || "").trim();
+  if (search.length < 2) return { employees: [] };
+  const employees = await prisma.user.findMany({
+    where: {
+      accountType: "EMPLOYEE",
+      status: "ACTIVE",
+      name: { contains: search, mode: "insensitive" },
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      payoutBankName: true,
+      payoutAccountHolderName: true,
+      payoutAccountNumber: true,
+    },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take: 10,
+  });
+  return { employees };
+}
+
+export async function createManualPayout(employeeId, adminId, input = {}) {
+  if (!String(employeeId || "").trim()) throw createError("Select an employee for this payout.", 400);
+  const amount = parseManualPayoutAmount(input.amount);
+  const adminNote = String(input.adminNote || "").trim().slice(0, 1000);
+  const processedAt = new Date();
+  const payout = await prisma.$transaction(async (transaction) => {
+    const employee = await transaction.user.findFirst({
+      where: { id: employeeId, accountType: "EMPLOYEE", status: "ACTIVE" },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        payoutBankName: true,
+        payoutAccountHolderName: true,
+        payoutAccountNumber: true,
+      },
+    });
+    if (!employee) throw createError("Active employee account was not found.", 404);
+    if (!employee.payoutBankName || !employee.payoutAccountHolderName || !employee.payoutAccountNumber) {
+      throw createError("The employee must complete their payout account details before a manual payout can be recorded.", 409);
+    }
+
+    const payoutRequest = await transaction.payoutRequest.create({
+      data: {
+        employeeId: employee.id,
+        employeeName: employee.name,
+        employeeEmail: employee.email,
+        employeePhone: employee.phone,
+        payoutBankName: employee.payoutBankName,
+        payoutAccountHolderName: employee.payoutAccountHolderName,
+        payoutAccountNumber: employee.payoutAccountNumber,
+        amount,
+        workCount: 0,
+        status: "PAID",
+        requestedAt: processedAt,
+        processedAt,
+        reviewerId: adminId,
+        adminNote: adminNote
+          ? `Manual payout recorded by admin. ${adminNote}`
+          : "Manual payout recorded by admin.",
+      },
+      include: {
+        ...payoutRequestDetails,
+        reviewer: { select: { id: true, name: true, email: true } },
+      },
+    });
+    return payoutRequest;
+  });
+
+  let smsNotification;
+  try {
+    smsNotification = await sendPayoutApprovalSms(payout);
+  } catch {
+    smsNotification = { status: "failed", reason: "unexpected_error" };
+  }
+  if (smsNotification.status !== "sent") {
+    console.error("Manual payout SMS was not sent.", {
+      payoutRequestId: payout.id,
+      status: smsNotification.status,
+      reason: smsNotification.reason,
+    });
+  }
+  return { ...payout, smsNotification };
 }
 
 export async function decidePayoutRequest(requestId, reviewerId, decision, adminNote) {
