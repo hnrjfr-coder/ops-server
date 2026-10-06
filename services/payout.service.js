@@ -253,10 +253,9 @@ export async function searchAdminPayoutEmployees(input = {}) {
   return { employees };
 }
 
-export async function createManualPayout(employeeId, adminId, input = {}) {
+export async function createManualPayout(employeeId, adminId, amountInput) {
   if (!String(employeeId || "").trim()) throw createError("Select an employee for this payout.", 400);
-  const amount = parseManualPayoutAmount(input.amount);
-  const adminNote = String(input.adminNote || "").trim().slice(0, 1000);
+  const amount = parseManualPayoutAmount(amountInput);
   const processedAt = new Date();
   const payout = await prisma.$transaction(async (transaction) => {
     const employee = await transaction.user.findFirst({
@@ -291,9 +290,7 @@ export async function createManualPayout(employeeId, adminId, input = {}) {
         requestedAt: processedAt,
         processedAt,
         reviewerId: adminId,
-        adminNote: adminNote
-          ? `Manual payout recorded by admin. ${adminNote}`
-          : "Manual payout recorded by admin.",
+        adminNote: "Manual payout recorded by admin.",
       },
       include: {
         ...payoutRequestDetails,

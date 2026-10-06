@@ -12,13 +12,6 @@ function serviceError(message, statusCode) {
   return error;
 }
 
-export function normalizeFundingReportReason(input) {
-  const reason = String(input || "").trim();
-  if (!reason) throw serviceError("Enter a reason for this funding report.", 400);
-  if (reason.length > 2000) throw serviceError("The report reason must be 2,000 characters or fewer.", 400);
-  return reason;
-}
-
 const eligibleFundingWhere = {
   approvedAt: { not: null },
   work: null,
@@ -26,8 +19,7 @@ const eligibleFundingWhere = {
   refunds: { none: { status: { in: ["PENDING_FUNDER_APPROVAL", "APPROVED"] } } },
 };
 
-export async function createEmployeeFundingReport(employeeId, fundingRequestId, input = {}) {
-  const reason = normalizeFundingReportReason(input.reason);
+export async function createEmployeeFundingReport(employeeId, fundingRequestId) {
   return prisma.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT "id" FROM "ops"."FundingRequest" WHERE "id" = ${fundingRequestId} FOR UPDATE`;
     const funding = await transaction.fundingRequest.findFirst({
@@ -46,7 +38,12 @@ export async function createEmployeeFundingReport(employeeId, fundingRequestId, 
     if (existingReport) throw serviceError("This funding already has a pending or approved report.", 409);
 
     return transaction.fundingReport.create({
-      data: { fundingRequestId, employeeId, funderId: funding.funderId, reason },
+      data: {
+        fundingRequestId,
+        employeeId,
+        funderId: funding.funderId,
+        reason: "Use-of-funds report submitted.",
+      },
       include: {
         fundingRequest: { select: { id: true, accountName: true, accountCategory: true, amount: true, status: true } },
       },

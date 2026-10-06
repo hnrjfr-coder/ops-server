@@ -15,7 +15,6 @@ import {
   requestsSinceCompletedBatch,
 } from "./funding.service.js";
 import { sumPaidPayoutAmounts } from "./payout.service.js";
-import { normalizeFundingReportReason } from "./funding-report.service.js";
 import { getInitialAccountStatus } from "./auth.service.js";
 import { isFundingRequestEligibleForWork } from "./work.service.js";
 
@@ -163,12 +162,6 @@ test("total received includes paid payouts only", () => {
     { status: "REJECTED", amount: 12000 },
     { status: "APPROVED", amount: 15000 },
   ]), 60000);
-});
-
-test("funding report reason is required, trimmed, and length-limited", () => {
-  assert.equal(normalizeFundingReportReason("  Funds used for the approved subscription.  "), "Funds used for the approved subscription.");
-  assert.throws(() => normalizeFundingReportReason("  "), { statusCode: 400 });
-  assert.throws(() => normalizeFundingReportReason("r".repeat(2001)), { statusCode: 400 });
 });
 
 test("new employees require admin approval while other account types stay active", () => {

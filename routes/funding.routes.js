@@ -80,7 +80,7 @@ fundingRouter.post("/", async (request, response, next) => {
 
 fundingRouter.post("/:requestId/report", async (request, response, next) => {
   try {
-    const report = await createEmployeeFundingReport(request.authUser.id, request.params.requestId, request.body);
+    const report = await createEmployeeFundingReport(request.authUser.id, request.params.requestId);
     response.status(201).json(report);
   } catch (error) {
     next(error);

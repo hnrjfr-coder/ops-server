@@ -351,7 +351,7 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
         reports: {
           orderBy: { requestedAt: "desc" },
           take: 1,
-          select: { id: true, reason: true, status: true, requestedAt: true, processedAt: true, funderNote: true },
+          select: { id: true, status: true, requestedAt: true, processedAt: true, funderNote: true },
         },
       },
       orderBy: { requestedAt: "desc" },
@@ -524,7 +524,7 @@ export async function listFunderFundingRequests(funderId, input = {}) {
           reports: {
             orderBy: { requestedAt: "desc" },
             take: 1,
-            select: { id: true, status: true, requestedAt: true, processedAt: true, reason: true, funderNote: true },
+            select: { id: true, status: true, requestedAt: true, processedAt: true, funderNote: true },
           },
         }),
       },
