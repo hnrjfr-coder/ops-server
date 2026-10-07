@@ -9,3 +9,4 @@ node_modules/
 /uploads/*
 
 test-logins.local.md
+README.credentials.local.md

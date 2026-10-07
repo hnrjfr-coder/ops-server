@@ -58,6 +58,28 @@ created under the dedicated `ops` schema, leaving other schemas untouched.
 - `GET /api/supervisor/employees`
 - `PATCH /api/supervisor/works/:workId/status`
 
+## Render uptime monitoring
+
+Use an external monitor such as UptimeRobot to check the deployed API health
+endpoint and alert you when it stops responding:
+
+1. In UptimeRobot, create an **HTTP(s)** monitor.
+2. Set the URL to `https://ops-server-zkfz.onrender.com/api/health` (or the
+   current production backend URL followed by `/api/health`).
+3. Set the interval to **5 minutes**, or the shortest interval available on
+   your UptimeRobot plan.
+4. Configure an alert contact and verify that a successful check returns HTTP
+   `200` with `{"ok":true,"service":"ops-hub-server","database":"ok"}`.
+   Database connectivity is checked; an unavailable database returns HTTP
+   `503` so the monitor can report an outage.
+
+Periodic monitor requests can help prevent a free Render web service from
+idling, but this is not a 24/7 availability guarantee. A free instance can
+still cold-start, be restarted, or become unavailable; monitoring also cannot
+repair an outage. For reliable always-on production service, use a paid
+Render instance and configure Render's own health check to `/api/health` as
+well as external uptime alerts.
+
 ## Funding and work flow
 
 Employees create a funding request before starting the work. The backend routes

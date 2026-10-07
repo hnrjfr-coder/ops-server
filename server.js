@@ -42,8 +42,13 @@ app.use("/api/admin", adminRouter);
 app.use("/api/leaderboard", leaderboardRouter);
 app.use("/api/supervisor", supervisorRouter);
 
-app.get("/api/health", (_request, response) => {
-  response.json({ ok: true, service: "ops-hub-server" });
+app.get("/api/health", async (_request, response) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    response.json({ ok: true, service: "ops-hub-server", database: "ok" });
+  } catch {
+    response.status(503).json({ ok: false, service: "ops-hub-server", database: "unavailable" });
+  }
 });
 
 app.use((error, _request, response, _next) => {
