@@ -80,6 +80,21 @@ repair an outage. For reliable always-on production service, use a paid
 Render instance and configure Render's own health check to `/api/health` as
 well as external uptime alerts.
 
+## Browser CORS origins
+
+Set the backend's `CLIENT_ORIGIN` environment variable to the exact frontend
+origins, comma-separated when using both apex and `www` domains. For example:
+
+```text
+CLIENT_ORIGIN=https://opshub.ng,https://www.opshub.ng
+```
+
+Set this variable in the deployed backend service (Render), then restart or
+redeploy that service so the process loads the new value. The API reflects an
+origin only when it exactly matches this allowlist; it never substitutes a
+different configured origin. Local development may use
+`CLIENT_ORIGIN=http://localhost:3000`.
+
 ## Funding and work flow
 
 Employees create a funding request before starting the work. The backend routes
