@@ -48,11 +48,10 @@ function assignRelativePoints(rows, metric) {
 
 export function rankEmployeeLeaderboard(rows) {
   const normalized = rows.map((row) => ({
-    ...row,
+    employeeId: row.employeeId,
+    name: row.name,
     earnings: Number(row.earnings) || 0,
     completedJobs: Number(row.completedJobs) || 0,
-    subscriptions: Number(row.subscriptions) || 0,
-    renewals: Number(row.renewals) || 0,
   }));
   const earningsPoints = assignRelativePoints(normalized, "earnings");
   const jobsPoints = assignRelativePoints(normalized, "completedJobs");
@@ -63,9 +62,10 @@ export function rankEmployeeLeaderboard(rows) {
       const jobsScore = jobsPoints.get(row.employeeId) || 0;
       const totalScore = (earningsScore + jobsScore) / 2;
       return {
-        ...row,
-        earningsPoints: Math.round(earningsScore * 10) / 10,
-        jobsPoints: Math.round(jobsScore * 10) / 10,
+        employeeId: row.employeeId,
+        name: row.name,
+        earnings: row.earnings,
+        completedJobs: row.completedJobs,
         points: Math.round(totalScore * 10) / 10,
       };
     })
@@ -78,24 +78,20 @@ export function rankEmployeeLeaderboard(rows) {
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
-export async function getEmployeeLeaderboard(viewerId) {
-  const { month, timeZone, start, end } = getCurrentLeaderboardMonth();
+export async function getEmployeeLeaderboard() {
+  const { month, start, end } = getCurrentLeaderboardMonth();
   const rows = await prisma.$queryRaw`
     SELECT
       employee."id" AS "employeeId",
       employee."name" AS "name",
       COALESCE(work."earnings", 0)::float8 AS "earnings",
-      COALESCE(work."completedJobs", 0)::int AS "completedJobs",
-      COALESCE(work."subscriptions", 0)::int AS "subscriptions",
-      COALESCE(work."renewals", 0)::int AS "renewals"
+      COALESCE(work."completedJobs", 0)::int AS "completedJobs"
     FROM "ops"."User" AS employee
     LEFT JOIN (
       SELECT
         "employeeId",
         SUM("amount") AS "earnings",
-        COUNT(*) AS "completedJobs",
-        COUNT(*) FILTER (WHERE UPPER("category") = 'SUBSCRIPTION') AS "subscriptions",
-        COUNT(*) FILTER (WHERE UPPER("category") = 'RENEWAL') AS "renewals"
+        COUNT(*) AS "completedJobs"
       FROM "ops"."WorkSubmission"
       WHERE "status" IN (${Prisma.join(APPROVED_STATUSES)})
         AND "submittedAt" >= ${start}
@@ -110,13 +106,13 @@ export async function getEmployeeLeaderboard(viewerId) {
 
   return {
     month,
-    timeZone,
-    scoring: {
-      earningsWeight: 0.5,
-      completedJobsWeight: 0.5,
-      pointsRange: 100,
-    },
-    viewerEmployeeId: viewerId || null,
-    employees: rankEmployeeLeaderboard(rows),
+    employees: rankEmployeeLeaderboard(rows).map(({ employeeId, name, earnings, completedJobs, points, rank }) => ({
+      employeeId,
+      name,
+      earnings,
+      completedJobs,
+      points,
+      rank,
+    })),
   };
 }

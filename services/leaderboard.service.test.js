@@ -19,17 +19,17 @@ test("leaderboard combines relative earnings and completed-job points equally", 
   ]);
 
   assert.deepEqual(
-    result.map(({ employeeId, rank, earningsPoints, jobsPoints, points }) => ({
+    result.map(({ employeeId, rank, earnings, completedJobs, points }) => ({
       employeeId,
       rank,
-      earningsPoints,
-      jobsPoints,
+      earnings,
+      completedJobs,
       points,
     })),
     [
-      { employeeId: "two", rank: 1, earningsPoints: 50, jobsPoints: 100, points: 75 },
-      { employeeId: "one", rank: 2, earningsPoints: 100, jobsPoints: 0, points: 50 },
-      { employeeId: "three", rank: 3, earningsPoints: 0, jobsPoints: 50, points: 25 },
+      { employeeId: "two", rank: 1, earnings: 50000, completedJobs: 3, points: 75 },
+      { employeeId: "one", rank: 2, earnings: 100000, completedJobs: 1, points: 50 },
+      { employeeId: "three", rank: 3, earnings: 0, completedJobs: 2, points: 25 },
     ],
   );
 });
@@ -57,12 +57,20 @@ test("earnings break a tie between equal overall points", () => {
   assert.equal(result[0].points, result[1].points);
 });
 
-test("a single employee earns 100 relative points in each category", () => {
+test("a single employee has 100 points", () => {
   const [result] = rankEmployeeLeaderboard([
     { employeeId: "one", name: "Employee One", earnings: 100, completedJobs: 1 },
   ]);
 
   assert.equal(result.points, 100);
-  assert.equal(result.earningsPoints, 100);
-  assert.equal(result.jobsPoints, 100);
+  assert.deepEqual(Object.keys(result).sort(), ["completedJobs", "earnings", "employeeId", "name", "points", "rank"]);
+});
+
+test("leaderboard ranking discards unrequested category breakdowns", () => {
+  const [result] = rankEmployeeLeaderboard([
+    { employeeId: "one", name: "Employee One", earnings: 100, completedJobs: 1, subscriptions: 1, renewals: 0 },
+  ]);
+
+  assert.equal("subscriptions" in result, false);
+  assert.equal("renewals" in result, false);
 });
