@@ -58,7 +58,6 @@ payoutRouter.post("/admin/manual", requireAuthenticatedAccountType("ADMIN"), asy
     const payout = await createManualPayout(
       String(request.body?.employeeId || ""),
       request.authUser.id,
-      request.body?.amount,
     );
     response.status(201).json(payout);
   } catch (error) {

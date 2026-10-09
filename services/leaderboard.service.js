@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+import { PAYOUT_PER_WORK } from "./payout.service.js";
 
 const TIME_ZONE = "Africa/Lagos";
 const APPROVED_STATUSES = ["APPROVED", "COMPLETED", "PAID"];
@@ -78,19 +79,21 @@ export function rankEmployeeLeaderboard(rows) {
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
+export function calculateLeaderboardEarnings(completedJobs) {
+  return (Number(completedJobs) || 0) * PAYOUT_PER_WORK;
+}
+
 export async function getEmployeeLeaderboard() {
   const { month, start, end } = getCurrentLeaderboardMonth();
   const rows = await prisma.$queryRaw`
     SELECT
       employee."id" AS "employeeId",
       employee."name" AS "name",
-      COALESCE(work."earnings", 0)::float8 AS "earnings",
       COALESCE(work."completedJobs", 0)::int AS "completedJobs"
     FROM "ops"."User" AS employee
     LEFT JOIN (
       SELECT
         "employeeId",
-        SUM("amount") AS "earnings",
         COUNT(*) AS "completedJobs"
       FROM "ops"."WorkSubmission"
       WHERE "status" IN (${Prisma.join(APPROVED_STATUSES)})
@@ -106,7 +109,10 @@ export async function getEmployeeLeaderboard() {
 
   return {
     month,
-    employees: rankEmployeeLeaderboard(rows).map(({ employeeId, name, earnings, completedJobs, points, rank }) => ({
+    employees: rankEmployeeLeaderboard(rows.map((row) => ({
+      ...row,
+      earnings: calculateLeaderboardEarnings(row.completedJobs),
+    }))).map(({ employeeId, name, earnings, completedJobs, points, rank }) => ({
       employeeId,
       name,
       earnings,

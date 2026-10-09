@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getCurrentLeaderboardMonth, rankEmployeeLeaderboard } from "./leaderboard.service.js";
+import {
+  calculateLeaderboardEarnings,
+  getCurrentLeaderboardMonth,
+  rankEmployeeLeaderboard,
+} from "./leaderboard.service.js";
 
 test("leaderboard month boundaries use the Nigeria calendar month", () => {
   const result = getCurrentLeaderboardMonth(new Date("2026-10-06T08:00:00.000Z"));
@@ -9,6 +13,11 @@ test("leaderboard month boundaries use the Nigeria calendar month", () => {
   assert.equal(result.timeZone, "Africa/Lagos");
   assert.equal(result.start.toISOString(), "2026-09-30T23:00:00.000Z");
   assert.equal(result.end.toISOString(), "2026-10-31T23:00:00.000Z");
+});
+
+test("leaderboard earnings are fixed at 3000 naira per approved work submission", () => {
+  assert.equal(calculateLeaderboardEarnings(0), 0);
+  assert.equal(calculateLeaderboardEarnings(4), 12000);
 });
 
 test("leaderboard combines relative earnings and completed-job points equally", () => {

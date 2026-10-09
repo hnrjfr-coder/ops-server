@@ -1,17 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseManualPayoutAmount } from "./payout.service.js";
+import { summarizeManualPayoutWorks } from "./payout.service.js";
 
-test("manual payout amount accepts positive whole-naira amounts", () => {
-  assert.equal(parseManualPayoutAmount(15000), 15000);
-  assert.equal(parseManualPayoutAmount("25000"), 25000);
+test("manual payout amount is calculated from every available approved work", () => {
+  const works = Array.from({ length: 4 }, (_, index) => ({ id: `work-${index + 1}` }));
+  assert.deepEqual(summarizeManualPayoutWorks(works), { workCount: 4, amount: 12000 });
 });
 
-test("manual payout amount rejects invalid and out-of-range values", () => {
-  for (const amount of ["", "0", "-1", "100.5", "abc", "2147483648"]) {
-    assert.throws(() => parseManualPayoutAmount(amount), {
-      message: "Enter a whole-number payout amount greater than zero.",
-      statusCode: 400,
-    });
-  }
+test("manual payout requires at least one available approved work", () => {
+  assert.throws(() => summarizeManualPayoutWorks([]), {
+    message: "No approved works are currently available for this employee's payout.",
+    statusCode: 409,
+  });
+});
+
+test("manual payout rejects totals outside the database amount range", () => {
+  const works = new Array(715828);
+  assert.throws(() => summarizeManualPayoutWorks(works), {
+    message: "Available approved earnings exceed the supported payout amount.",
+    statusCode: 409,
+  });
 });

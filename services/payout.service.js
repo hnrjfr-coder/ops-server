@@ -27,16 +27,16 @@ function createError(message, statusCode) {
   return error;
 }
 
-export function parseManualPayoutAmount(input) {
-  const value = typeof input === "string" ? input.trim() : input;
-  if (typeof value === "string" && !/^\d+$/.test(value)) {
-    throw createError("Enter a whole-number payout amount greater than zero.", 400);
+export function summarizeManualPayoutWorks(works) {
+  const workCount = works.length;
+  if (workCount === 0) {
+    throw createError("No approved works are currently available for this employee's payout.", 409);
   }
-  const amount = Number(value);
-  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 2_147_483_647) {
-    throw createError("Enter a whole-number payout amount greater than zero.", 400);
+  const amount = workCount * PAYOUT_PER_WORK;
+  if (amount > 2_147_483_647) {
+    throw createError("Available approved earnings exceed the supported payout amount.", 409);
   }
-  return amount;
+  return { workCount, amount };
 }
 
 const workSelection = {
@@ -250,55 +250,112 @@ export async function searchAdminPayoutEmployees(input = {}) {
     orderBy: [{ name: "asc" }, { id: "asc" }],
     take: 10,
   });
-  return { employees };
+  const eligibleWorkGroups = employees.length
+    ? await prisma.workSubmission.groupBy({
+      by: ["employeeId"],
+      where: {
+        employeeId: { in: employees.map((employee) => employee.id) },
+        status: "COMPLETED",
+        approvedAt: { not: null },
+        payoutRequestId: null,
+      },
+      _count: { _all: true },
+    })
+    : [];
+  const eligibleWorkCounts = new Map(
+    eligibleWorkGroups.map((group) => [group.employeeId, group._count._all]),
+  );
+  return {
+    employees: employees.map((employee) => {
+      const eligibleWorkCount = eligibleWorkCounts.get(employee.id) || 0;
+      return {
+        ...employee,
+        eligibleWorkCount,
+        eligibleAmount: eligibleWorkCount * PAYOUT_PER_WORK,
+      };
+    }),
+  };
 }
 
-export async function createManualPayout(employeeId, adminId, amountInput) {
+export async function createManualPayout(employeeId, adminId) {
   if (!String(employeeId || "").trim()) throw createError("Select an employee for this payout.", 400);
-  const amount = parseManualPayoutAmount(amountInput);
   const processedAt = new Date();
-  const payout = await prisma.$transaction(async (transaction) => {
-    const employee = await transaction.user.findFirst({
-      where: { id: employeeId, accountType: "EMPLOYEE", status: "ACTIVE" },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        payoutBankName: true,
-        payoutAccountHolderName: true,
-        payoutAccountNumber: true,
-      },
-    });
-    if (!employee) throw createError("Active employee account was not found.", 404);
-    if (!employee.payoutBankName || !employee.payoutAccountHolderName || !employee.payoutAccountNumber) {
-      throw createError("The employee must complete their payout account details before a manual payout can be recorded.", 409);
-    }
+  let payout;
+  try {
+    payout = await prisma.$transaction(async (transaction) => {
+      const employee = await transaction.user.findFirst({
+        where: { id: employeeId, accountType: "EMPLOYEE", status: "ACTIVE" },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          payoutBankName: true,
+          payoutAccountHolderName: true,
+          payoutAccountNumber: true,
+        },
+      });
+      if (!employee) throw createError("Active employee account was not found.", 404);
+      if (!employee.payoutBankName || !employee.payoutAccountHolderName || !employee.payoutAccountNumber) {
+        throw createError("The employee must complete their payout account details before a manual payout can be recorded.", 409);
+      }
 
-    const payoutRequest = await transaction.payoutRequest.create({
-      data: {
+      const eligibleWorkWhere = {
         employeeId: employee.id,
-        employeeName: employee.name,
-        employeeEmail: employee.email,
-        employeePhone: employee.phone,
-        payoutBankName: employee.payoutBankName,
-        payoutAccountHolderName: employee.payoutAccountHolderName,
-        payoutAccountNumber: employee.payoutAccountNumber,
-        amount,
-        workCount: 0,
-        status: "PAID",
-        requestedAt: processedAt,
-        processedAt,
-        reviewerId: adminId,
-        adminNote: "Manual payout recorded by admin.",
-      },
-      include: {
-        ...payoutRequestDetails,
-        reviewer: { select: { id: true, name: true, email: true } },
-      },
-    });
-    return payoutRequest;
-  });
+        status: "COMPLETED",
+        approvedAt: { not: null },
+        payoutRequestId: null,
+      };
+      const works = await transaction.workSubmission.findMany({
+        where: eligibleWorkWhere,
+        orderBy: [{ approvedAt: "asc" }, { id: "asc" }],
+        select: { id: true },
+      });
+      const { workCount, amount } = summarizeManualPayoutWorks(works);
+      const payoutRequest = await transaction.payoutRequest.create({
+        data: {
+          employeeId: employee.id,
+          employeeName: employee.name,
+          employeeEmail: employee.email,
+          employeePhone: employee.phone,
+          payoutBankName: employee.payoutBankName,
+          payoutAccountHolderName: employee.payoutAccountHolderName,
+          payoutAccountNumber: employee.payoutAccountNumber,
+          amount,
+          workCount,
+          status: "PAID",
+          requestedAt: processedAt,
+          processedAt,
+          reviewerId: adminId,
+          adminNote: "Manual payout recorded by admin.",
+        },
+      });
+
+      const claimedWorks = await transaction.workSubmission.updateMany({
+        where: {
+          ...eligibleWorkWhere,
+          id: { in: works.map((work) => work.id) },
+        },
+        data: { payoutRequestId: payoutRequest.id },
+      });
+      if (claimedWorks.count !== workCount) {
+        throw createError("Some approved works were already included in another payout. Please try again.", 409);
+      }
+
+      return transaction.payoutRequest.findUnique({
+        where: { id: payoutRequest.id },
+        include: {
+          ...payoutRequestDetails,
+          reviewer: { select: { id: true, name: true, email: true } },
+        },
+      });
+    }, { isolationLevel: "Serializable" });
+  } catch (error) {
+    if (error.code === "P2034") {
+      throw createError("Approved works changed while preparing the payout. Please try again.", 409);
+    }
+    throw error;
+  }
 
   let smsNotification;
   try {

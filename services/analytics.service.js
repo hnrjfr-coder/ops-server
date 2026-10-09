@@ -97,7 +97,7 @@ function indexRows(rows) {
 }
 
 async function getCurrentSnapshot() {
-  const [employeeCount, activeEmployeeCount, pendingFunding, pendingPayouts, pendingRefunds, confirmedFunding] = await Promise.all([
+  const [employeeCount, activeEmployeeCount, pendingFunding, pendingPayouts, pendingRefunds, confirmedFunding, unusedFunding, usedFunding] = await Promise.all([
     prisma.user.count({ where: { accountType: "EMPLOYEE" } }),
     prisma.user.count({ where: { accountType: "EMPLOYEE", status: "ACTIVE" } }),
     prisma.fundingRequest.aggregate({
@@ -120,6 +120,21 @@ async function getCurrentSnapshot() {
       _count: { _all: true },
       _sum: { amount: true },
     }),
+    prisma.fundingRequest.aggregate({
+      where: {
+        status: "APPROVED",
+        work: { is: null },
+        reports: { none: {} },
+        refunds: { none: {} },
+      },
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
+    prisma.fundingRequest.aggregate({
+      where: { approvedAt: { not: null }, work: { isNot: null } },
+      _count: { _all: true },
+      _sum: { amount: true },
+    }),
   ]);
 
   return {
@@ -129,6 +144,10 @@ async function getCurrentSnapshot() {
       pendingAmount: pendingFunding._sum.amount || 0,
       approvedCount: confirmedFunding._count._all,
       approvedAmount: confirmedFunding._sum.amount || 0,
+      unusedCount: unusedFunding._count._all,
+      unusedAmount: unusedFunding._sum.amount || 0,
+      usedCount: usedFunding._count._all,
+      usedAmount: usedFunding._sum.amount || 0,
     },
     payouts: {
       pendingCount: pendingPayouts._count._all,
@@ -391,7 +410,7 @@ export async function listAdminAnalyticsRecords(input = {}) {
   const type = String(input.type || "").toLowerCase();
   if (!["funding", "work"].includes(type)) throw invalidInput("type must be funding or work.");
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
-  const pageSize = Math.min(10, Math.max(1, Number.parseInt(input.pageSize, 10) || 10));
+  const pageSize = Math.min(30, Math.max(1, Number.parseInt(input.pageSize, 10) || 30));
   const skip = (page - 1) * pageSize;
 
   if (type === "funding") {
