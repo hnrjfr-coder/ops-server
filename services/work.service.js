@@ -300,7 +300,7 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
       ${to ? Prisma.sql`AND "submittedAt" < ${dateRange.endExclusive}` : Prisma.empty}
     `
     : Prisma.empty;
-  const [total, statusGroups, pendingEmployees, pendingPayouts, pendingCount] = await Promise.all([
+  const [total, statusGroups, pendingEmployees, pendingPayouts, pendingCount, pendingEmployeeGroups] = await Promise.all([
     prisma.workSubmission.count({ where }),
     prisma.workSubmission.groupBy({ by: ["status"], where: summaryWhere, _count: { _all: true } }),
     prisma.$queryRaw`
@@ -316,6 +316,11 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
     status && status !== "UNDER_REVIEW"
       ? 0
       : prisma.workSubmission.count({ where: { ...where, status: "UNDER_REVIEW" } }),
+    prisma.workSubmission.groupBy({
+      by: ["employeeId"],
+      where: { supervisorId, status: "UNDER_REVIEW" },
+      _count: { _all: true },
+    }),
   ]);
   const { pendingTake, reviewedSkip, reviewedTake } = getPendingFirstPagePlan(skip, pageSize, pendingCount);
   const selection = {
@@ -367,7 +372,13 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
         })
       : [],
   ]);
-  const works = [...pendingWorks, ...reviewedWorks];
+  const pendingEmployeeCounts = new Map(
+    pendingEmployeeGroups.map((group) => [group.employeeId, group._count._all]),
+  );
+  const works = [...pendingWorks, ...reviewedWorks].map((work) => ({
+    ...work,
+    employeePendingCount: pendingEmployeeCounts.get(work.employeeId) || 0,
+  }));
   const counts = Object.fromEntries(statusGroups.map((group) => [group.status, group._count._all]));
   const submitted = Object.values(counts).reduce((sum, count) => sum + count, 0);
   const underReview = counts.UNDER_REVIEW || 0;
@@ -498,4 +509,72 @@ export async function updateSupervisedWorkStatus(supervisorId, workId, status) {
       },
     });
   });
+}
+
+export async function approveSupervisedEmployeeWorks(supervisorId, employeeId) {
+  if (!String(employeeId || "").trim()) {
+    const error = new Error("Select an employee whose work you want to approve.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  try {
+    return await prisma.$transaction(async (transaction) => {
+      const works = await transaction.workSubmission.findMany({
+        where: { supervisorId, employeeId, status: "UNDER_REVIEW" },
+        select: { id: true, fundingRequestId: true },
+      });
+      if (works.length === 0) {
+        const error = new Error("This employee has no work awaiting your review.");
+        error.statusCode = 409;
+        throw error;
+      }
+
+      const decidedAt = new Date();
+      for (const work of works) {
+        const updatedWork = await transaction.workSubmission.updateMany({
+          where: { id: work.id, supervisorId, employeeId, status: "UNDER_REVIEW" },
+          data: {
+            status: work.fundingRequestId ? "COMPLETED" : "APPROVED",
+            approvedAt: decidedAt,
+          },
+        });
+        if (updatedWork.count !== 1) {
+          const error = new Error("A work submission was already decided by another request.");
+          error.statusCode = 409;
+          throw error;
+        }
+
+        if (work.fundingRequestId) {
+          const updatedRequest = await transaction.fundingRequest.updateMany({
+            where: { id: work.fundingRequestId, status: "UNDER_SUPERVISOR_REVIEW" },
+            data: {
+              status: "COMPLETED",
+              completedAt: decidedAt,
+              lastStatusChangedAt: decidedAt,
+            },
+          });
+          if (updatedRequest.count !== 1) {
+            const error = new Error("A linked funding request is no longer awaiting supervisor review.");
+            error.statusCode = 409;
+            throw error;
+          }
+        } else {
+          await transaction.paymentRequest.updateMany({
+            where: { workId: work.id },
+            data: { status: "APPROVED" },
+          });
+        }
+      }
+
+      return { employeeId, approvedCount: works.length };
+    }, { isolationLevel: "Serializable" });
+  } catch (error) {
+    if (error.code === "P2034") {
+      const conflict = new Error("The employee's pending work changed while approving. Refresh and try again.");
+      conflict.statusCode = 409;
+      throw conflict;
+    }
+    throw error;
+  }
 }
