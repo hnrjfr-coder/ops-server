@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
-import { approveEmployeeAccount, getAdminOverview, getAdminSignupNotifications, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
+import { approveEmployeeAccount, deleteAdminFundingRecord, getAdminOverview, getAdminSignupNotifications, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
 import { getAdminAnalytics, listAdminAnalyticsRecords } from "../services/analytics.service.js";
+import { decideFunderFundingRequest, listAdminFunderFundingRequests } from "../services/funder-funding-request.service.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuthenticatedAccountType("ADMIN"));
@@ -54,9 +55,38 @@ adminRouter.get("/analytics/records", async (request, response, next) => {
   }
 });
 
+adminRouter.get("/funder-funding-requests", async (request, response, next) => {
+  try {
+    response.json(await listAdminFunderFundingRequests(request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.patch("/funder-funding-requests/:requestId", async (request, response, next) => {
+  try {
+    response.json(await decideFunderFundingRequest(
+      request.params.requestId,
+      request.authUser.id,
+      String(request.body?.decision || "").toUpperCase(),
+      request.body?.adminNote,
+    ));
+  } catch (error) {
+    next(error);
+  }
+});
+
 adminRouter.patch("/staff/:staffId/approval", async (request, response, next) => {
   try {
     response.json(await approveEmployeeAccount(request.params.staffId, request.authUser.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.delete("/analytics/funding/:fundingRequestId", async (request, response, next) => {
+  try {
+    response.json(await deleteAdminFundingRecord(request.params.fundingRequestId));
   } catch (error) {
     next(error);
   }

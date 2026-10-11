@@ -100,6 +100,44 @@ export async function listAdminStaff(input = {}) {
   };
 }
 
+export function canDeleteFundingRecord(record) {
+  if (!record) return false;
+  const activities = [...(record.reports || []), ...(record.refunds || [])];
+  return Boolean(record.work === null && activities.some((activity) => activity.status === "APPROVED"));
+}
+
+export async function deleteAdminFundingRecord(fundingRequestId) {
+  return prisma.$transaction(async (transaction) => {
+    const funding = await transaction.fundingRequest.findUnique({
+      where: { id: fundingRequestId },
+      select: {
+        id: true,
+        work: { select: { id: true } },
+        reports: { select: { id: true, status: true } },
+        refunds: { select: { id: true, status: true } },
+      },
+    });
+    if (!funding) {
+      const error = new Error("Funding request was not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    if (!canDeleteFundingRecord(funding)) {
+      const error = new Error("Only funding requests with an approved report or refund can be deleted.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    await transaction.workSubmission.updateMany({
+      where: { fundingRequestId },
+      data: { fundingRequestId: null },
+    });
+    await transaction.refundRequest.deleteMany({ where: { fundingRequestId } });
+    await transaction.fundingReport.deleteMany({ where: { fundingRequestId } });
+    return transaction.fundingRequest.delete({ where: { id: fundingRequestId } });
+  });
+}
+
 export async function approveEmployeeAccount(employeeId, adminId) {
   const result = await prisma.user.updateMany({
     where: { id: employeeId, accountType: "EMPLOYEE", status: "PENDING_ADMIN_APPROVAL" },

@@ -3,6 +3,7 @@ import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.j
 import { decideFundingRequest, getFunderFundingSummary, listFunderFundingRequests } from "../services/funding.service.js";
 import { decideRefundRequest, getFunderRefundAccount, listFunderRefundRequests, updateFunderRefundAccount } from "../services/refund.service.js";
 import { decideFundingReport, listFunderFundingReports } from "../services/funding-report.service.js";
+import { createFunderFundingRequest, listFunderAdminFundingRequests } from "../services/funder-funding-request.service.js";
 
 export const funderRouter = Router();
 funderRouter.use(requireAuthenticatedAccountType("FUNDER"));
@@ -49,6 +50,22 @@ funderRouter.get("/summary", async (request, response, next) => {
   try {
     const funderId = request.authUser.id;
     response.json(await getFunderFundingSummary(funderId, request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+funderRouter.get("/admin-funding-requests", async (request, response, next) => {
+  try {
+    response.json(await listFunderAdminFundingRequests(request.authUser.id, request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+funderRouter.post("/admin-funding-requests", async (request, response, next) => {
+  try {
+    response.status(201).json(await createFunderFundingRequest(request.authUser.id, request.body));
   } catch (error) {
     next(error);
   }

@@ -58,6 +58,8 @@ model User {
   refundRequestsAsFunder      RefundRequest[]  @relation("RefundRequestFunder")
   fundingReportsAsEmployee    FundingReport[]  @relation("FundingReportEmployee")
   fundingReportsAsFunder      FundingReport[]  @relation("FundingReportFunder")
+  funderFundingRequests       FunderFundingRequest[] @relation("FunderFundingRequester")
+  reviewedFunderFundingRequests FunderFundingRequest[] @relation("FunderFundingReviewer")
 
   @@index([accountType, status])
   @@index([accountType, createdAt])
@@ -128,6 +130,26 @@ model FundingRequest {
   @@index([supervisorId, approvedAt])
   @@index([status, requestedAt])
   @@index([approvedAt])
+  @@schema("ops")
+}
+
+model FunderFundingRequest {
+  id                        String   @id @default(cuid())
+  funderId                  String
+  funder                    User     @relation("FunderFundingRequester", fields: [funderId], references: [id], onDelete: Cascade)
+  amount                    Int
+  refundBankName            String
+  refundAccountHolderName   String
+  refundAccountNumber       String
+  status                    String   @default("PENDING")
+  requestedAt               DateTime @default(now())
+  processedAt               DateTime?
+  reviewerId                String?
+  reviewer                  User?    @relation("FunderFundingReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  adminNote                 String?
+
+  @@index([funderId, requestedAt])
+  @@index([status, requestedAt])
   @@schema("ops")
 }
 
