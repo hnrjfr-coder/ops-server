@@ -27,16 +27,15 @@ function createError(message, statusCode) {
   return error;
 }
 
-export function summarizeManualPayoutWorks(works) {
+export function summarizeManualPayoutWorks(works, payoutAmount) {
+  if (!Number.isSafeInteger(payoutAmount) || payoutAmount < 1 || payoutAmount > 2_147_483_647) {
+    throw createError("Enter a valid payout amount between 1 and 2,147,483,647 NGN.", 400);
+  }
   const workCount = works.length;
   if (workCount === 0) {
     throw createError("No approved works are currently available for this employee's payout.", 409);
   }
-  const amount = workCount * PAYOUT_PER_WORK;
-  if (amount > 2_147_483_647) {
-    throw createError("Available approved earnings exceed the supported payout amount.", 409);
-  }
-  return { workCount, amount };
+  return { workCount, amount: payoutAmount };
 }
 
 const workSelection = {
@@ -277,8 +276,11 @@ export async function searchAdminPayoutEmployees(input = {}) {
   };
 }
 
-export async function createManualPayout(employeeId, adminId) {
+export async function createManualPayout(employeeId, adminId, payoutAmount) {
   if (!String(employeeId || "").trim()) throw createError("Select an employee for this payout.", 400);
+  if (!Number.isSafeInteger(payoutAmount) || payoutAmount < 1 || payoutAmount > 2_147_483_647) {
+    throw createError("Enter a valid payout amount between 1 and 2,147,483,647 NGN.", 400);
+  }
   const processedAt = new Date();
   let payout;
   try {
@@ -311,7 +313,7 @@ export async function createManualPayout(employeeId, adminId) {
         orderBy: [{ approvedAt: "asc" }, { id: "asc" }],
         select: { id: true },
       });
-      const { workCount, amount } = summarizeManualPayoutWorks(works);
+      const { workCount, amount } = summarizeManualPayoutWorks(works, payoutAmount);
       const payoutRequest = await transaction.payoutRequest.create({
         data: {
           employeeId: employee.id,
@@ -327,7 +329,7 @@ export async function createManualPayout(employeeId, adminId) {
           requestedAt: processedAt,
           processedAt,
           reviewerId: adminId,
-          adminNote: "Manual payout recorded by admin.",
+          adminNote: "Manual payout recorded by admin; amount entered by admin.",
         },
       });
 
