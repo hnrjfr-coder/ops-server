@@ -90,7 +90,7 @@ export async function listAdminFunderFundingRequests(input = {}) {
         }
       : {}),
   };
-  const [items, total] = await Promise.all([
+  const [items, total, statusGroups] = await Promise.all([
     prisma.funderFundingRequest.findMany({
       where,
       include: {
@@ -102,8 +102,39 @@ export async function listAdminFunderFundingRequests(input = {}) {
       take: pageSize,
     }),
     prisma.funderFundingRequest.count({ where }),
+    prisma.funderFundingRequest.groupBy({
+      by: ["status"],
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
   ]);
-  return paginatedResult(items, total, page, pageSize);
+  const summary = {
+    totalAmount: 0,
+    pendingAmount: 0,
+    approvedAmount: 0,
+    rejectedAmount: 0,
+    totalCount: 0,
+    pendingCount: 0,
+    approvedCount: 0,
+    rejectedCount: 0,
+  };
+  for (const group of statusGroups) {
+    const amount = Number(group._sum.amount) || 0;
+    const count = group._count._all;
+    summary.totalAmount += amount;
+    summary.totalCount += count;
+    if (group.status === "PENDING") {
+      summary.pendingAmount = amount;
+      summary.pendingCount = count;
+    } else if (group.status === "APPROVED") {
+      summary.approvedAmount = amount;
+      summary.approvedCount = count;
+    } else if (group.status === "REJECTED") {
+      summary.rejectedAmount = amount;
+      summary.rejectedCount = count;
+    }
+  }
+  return { ...paginatedResult(items, total, page, pageSize), summary };
 }
 
 export async function decideFunderFundingRequest(requestId, reviewerId, decision, adminNote = "") {

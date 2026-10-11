@@ -408,10 +408,40 @@ export async function getAdminAnalytics(input = {}) {
 
 export async function listAdminAnalyticsRecords(input = {}) {
   const type = String(input.type || "").toLowerCase();
-  if (!["funding", "work"].includes(type)) throw invalidInput("type must be funding or work.");
+  if (!["funding", "work", "unused-funding"].includes(type)) {
+    throw invalidInput("type must be funding, work, or unused-funding.");
+  }
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
   const pageSize = Math.min(30, Math.max(1, Number.parseInt(input.pageSize, 10) || 30));
   const skip = (page - 1) * pageSize;
+
+  if (type === "unused-funding") {
+    const where = {
+      status: "APPROVED",
+      work: { is: null },
+      reports: { none: {} },
+      refunds: { none: {} },
+    };
+    const [items, total] = await Promise.all([
+      prisma.fundingRequest.findMany({
+        where,
+        orderBy: [{ approvedAt: "desc" }, { requestedAt: "desc" }],
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          employee: { select: { id: true, name: true, phone: true } },
+          accountName: true,
+          accountCategory: true,
+          amount: true,
+          approvedAt: true,
+          requestedAt: true,
+        },
+      }),
+      prisma.fundingRequest.count({ where }),
+    ]);
+    return { type, items, pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) } };
+  }
 
   if (type === "funding") {
     const where = {};
