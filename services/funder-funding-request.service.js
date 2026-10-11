@@ -24,6 +24,27 @@ function serviceError(message, statusCode) {
   return error;
 }
 
+function getRequestDateRange(input = {}) {
+  const from = String(input.from || "").trim();
+  const to = String(input.to || "").trim();
+  if (Boolean(from) !== Boolean(to)) {
+    throw serviceError("Choose both From and To dates, or clear both dates.", 400);
+  }
+  if (!from) return null;
+  const isDate = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  };
+  if (!isDate(from) || !isDate(to) || from > to) {
+    throw serviceError("Enter a valid date range with From on or before To.", 400);
+  }
+  const start = new Date(`${from}T00:00:00.000Z`);
+  const endExclusive = new Date(`${to}T00:00:00.000Z`);
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+  return { gte: start, lt: endExclusive };
+}
+
 export async function createFunderFundingRequest(funderId, input = {}) {
   const amount = Number(input.amount);
   if (!isAllowedFunderFundingAmount(input.amount)) {
@@ -78,8 +99,9 @@ export async function listAdminFunderFundingRequests(input = {}) {
   const { page, pageSize, skip } = parsePagination(input);
   const status = String(input.status || "").trim().toUpperCase();
   const search = String(input.search || "").trim();
-  const where = {
-    ...(status && status !== "ALL" ? { status } : {}),
+  const dateRange = getRequestDateRange(input);
+  const summaryWhere = {
+    ...(dateRange ? { requestedAt: dateRange } : {}),
     ...(search
       ? {
           OR: [
@@ -89,6 +111,10 @@ export async function listAdminFunderFundingRequests(input = {}) {
           ],
         }
       : {}),
+  };
+  const where = {
+    ...summaryWhere,
+    ...(status && status !== "ALL" ? { status } : {}),
   };
   const [items, total, statusGroups] = await Promise.all([
     prisma.funderFundingRequest.findMany({
@@ -104,6 +130,7 @@ export async function listAdminFunderFundingRequests(input = {}) {
     prisma.funderFundingRequest.count({ where }),
     prisma.funderFundingRequest.groupBy({
       by: ["status"],
+      where: summaryWhere,
       _sum: { amount: true },
       _count: { _all: true },
     }),
