@@ -271,6 +271,7 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
     : null;
   const status = String(input.status || "").trim();
   const queueView = input.view === "queue";
+  const employeeId = String(input.employeeId || "").trim();
   const search = String(input.search || "").trim();
   const submittedAt = dateRange
     ? {
@@ -284,6 +285,7 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
   };
   const where = {
     ...summaryWhere,
+    ...(queueView && employeeId ? { employeeId } : {}),
     ...(queueView ? { status: "UNDER_REVIEW" } : status ? { status } : {}),
     ...(search ? {
       OR: [
@@ -318,7 +320,11 @@ export async function getSupervisorWorks(supervisorId, input = {}) {
       : prisma.workSubmission.count({ where: { ...where, status: "UNDER_REVIEW" } }),
     prisma.workSubmission.groupBy({
       by: ["employeeId"],
-      where: { supervisorId, status: "UNDER_REVIEW" },
+      where: {
+        supervisorId,
+        status: "UNDER_REVIEW",
+        ...(queueView && employeeId ? { employeeId } : {}),
+      },
       _count: { _all: true },
     }),
   ]);
