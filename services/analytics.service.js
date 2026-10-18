@@ -168,6 +168,7 @@ export async function getAdminAnalytics(input = {}) {
   const dateFormat = periods[period].dateFormat;
   const fundingBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const fundingPendingBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const fundingRejectedBucket = Prisma.sql`to_char(date_trunc(${period}, "lastStatusChangedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const payoutRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const payoutDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const refundRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
@@ -177,7 +178,7 @@ export async function getAdminAnalytics(input = {}) {
   const workBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
   const employeeBucket = Prisma.sql`to_char(date_trunc(${period}, "createdAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
 
-  const [current, fundingRows, fundingRequestRows, payoutRequestRows, payoutDecisionRows, refundRequestRows, refundDecisionRows, reportRequestRows, reportDecisionRows, workRows, employeeRows] = await Promise.all([
+  const [current, fundingRows, fundingRequestRows, fundingRejectedRows, payoutRequestRows, payoutDecisionRows, refundRequestRows, refundDecisionRows, reportRequestRows, reportDecisionRows, workRows, employeeRows] = await Promise.all([
     getCurrentSnapshot(),
     prisma.$queryRaw`
       SELECT ${fundingBucket} AS bucket,
@@ -195,6 +196,16 @@ export async function getAdminAnalytics(input = {}) {
         COALESCE(SUM("amount") FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL'), 0)::float8 AS "pendingAmount"
       FROM "ops"."FundingRequest"
       WHERE "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
+      GROUP BY 1 ORDER BY 1
+    `,
+    prisma.$queryRaw`
+      SELECT ${fundingRejectedBucket} AS bucket,
+        COUNT(*)::int AS "rejectedCount",
+        COALESCE(SUM("amount"), 0)::float8 AS "rejectedAmount"
+      FROM "ops"."FundingRequest"
+      WHERE "status" = 'FUNDER_REJECTED'
+        AND "lastStatusChangedAt" >= ${from}
+        AND "lastStatusChangedAt" < ${endExclusive}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -271,6 +282,7 @@ export async function getAdminAnalytics(input = {}) {
 
   const fundingByBucket = indexRows(fundingRows);
   const fundingRequestsByBucket = indexRows(fundingRequestRows);
+  const fundingRejectedByBucket = indexRows(fundingRejectedRows);
   const payoutRequestsByBucket = indexRows(payoutRequestRows);
   const payoutDecisionsByBucket = indexRows(payoutDecisionRows);
   const refundRequestsByBucket = indexRows(refundRequestRows);
@@ -282,6 +294,7 @@ export async function getAdminAnalytics(input = {}) {
   const series = createBuckets(from, to, period).map((bucket) => {
     const funding = fundingByBucket.get(bucket);
     const fundingRequests = fundingRequestsByBucket.get(bucket);
+    const fundingRejected = fundingRejectedByBucket.get(bucket);
     const payoutRequests = payoutRequestsByBucket.get(bucket);
     const payoutDecisions = payoutDecisionsByBucket.get(bucket);
     const refundRequests = refundRequestsByBucket.get(bucket);
@@ -299,6 +312,8 @@ export async function getAdminAnalytics(input = {}) {
         requestedAmount: toNumber(fundingRequests?.requestedAmount),
         pendingCount: fundingRequests?.pendingCount || 0,
         pendingAmount: toNumber(fundingRequests?.pendingAmount),
+        rejectedCount: fundingRejected?.rejectedCount || 0,
+        rejectedAmount: toNumber(fundingRejected?.rejectedAmount),
       },
       refunds: {
         requestedCount: refundRequests?.requestedCount || 0,
@@ -338,6 +353,8 @@ export async function getAdminAnalytics(input = {}) {
     totals.fundingRequestedAmount += bucket.funding.requestedAmount;
     totals.fundingPendingCount += bucket.funding.pendingCount;
     totals.fundingPendingAmount += bucket.funding.pendingAmount;
+    totals.fundingRejectedCount += bucket.funding.rejectedCount;
+    totals.fundingRejectedAmount += bucket.funding.rejectedAmount;
     totals.refundRequestedCount += bucket.refunds.requestedCount;
     totals.refundRequestedAmount += bucket.refunds.requestedAmount;
     totals.refundPendingCount += bucket.refunds.pendingCount;
@@ -368,6 +385,8 @@ export async function getAdminAnalytics(input = {}) {
     fundingRequestedAmount: 0,
     fundingPendingCount: 0,
     fundingPendingAmount: 0,
+    fundingRejectedCount: 0,
+    fundingRejectedAmount: 0,
     refundRequestedCount: 0,
     refundRequestedAmount: 0,
     refundPendingCount: 0,
@@ -408,12 +427,45 @@ export async function getAdminAnalytics(input = {}) {
 
 export async function listAdminAnalyticsRecords(input = {}) {
   const type = String(input.type || "").toLowerCase();
-  if (!["funding", "work", "unused-funding", "reports-submitted", "reports-approved"].includes(type)) {
-    throw invalidInput("type must be funding, work, unused-funding, reports-submitted, or reports-approved.");
+  if (!["funding", "work", "unused-funding", "reports-submitted", "reports-approved", "rejected-funding"].includes(type)) {
+    throw invalidInput("type must be funding, work, unused-funding, reports-submitted, reports-approved, or rejected-funding.");
   }
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
   const pageSize = Math.min(30, Math.max(1, Number.parseInt(input.pageSize, 10) || 30));
   const skip = (page - 1) * pageSize;
+
+  if (type === "rejected-funding") {
+    if (!input.from || !input.to) throw invalidInput("Provide both from and to dates for rejected funding records.");
+    const from = utcDate(String(input.from), "from");
+    const to = utcDate(String(input.to), "to");
+    if (from > to) throw invalidInput("from must be on or before to.");
+    const endExclusive = new Date(to.getTime() + DAY_MS);
+    const where = {
+      status: "FUNDER_REJECTED",
+      lastStatusChangedAt: { gte: from, lt: endExclusive },
+    };
+    const [items, total] = await Promise.all([
+      prisma.fundingRequest.findMany({
+        where,
+        orderBy: [{ lastStatusChangedAt: "desc" }, { id: "desc" }],
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          accountName: true,
+          accountCategory: true,
+          amount: true,
+          status: true,
+          requestedAt: true,
+          lastStatusChangedAt: true,
+          employee: { select: { id: true, name: true, phone: true } },
+          funder: { select: { id: true, name: true, email: true } },
+        },
+      }),
+      prisma.fundingRequest.count({ where }),
+    ]);
+    return { type, items, pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) } };
+  }
 
   if (type === "reports-submitted" || type === "reports-approved") {
     if (!input.from || !input.to) throw invalidInput("Provide both from and to dates for funding report records.");
