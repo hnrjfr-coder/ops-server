@@ -193,3 +193,18 @@ export async function decideFunderFundingRequest(requestId, reviewerId, decision
     },
   });
 }
+
+export async function deleteRejectedFunderFundingRequest(requestId) {
+  const result = await prisma.funderFundingRequest.deleteMany({
+    where: { id: requestId, status: "REJECTED" },
+  });
+  if (result.count !== 1) {
+    const existing = await prisma.funderFundingRequest.findUnique({
+      where: { id: requestId },
+      select: { id: true },
+    });
+    if (!existing) throw serviceError("Funder funding request was not found.", 404);
+    throw serviceError("Only rejected funder funding requests can be deleted.", 409);
+  }
+  return { id: requestId, deleted: true };
+}

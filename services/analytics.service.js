@@ -408,12 +408,54 @@ export async function getAdminAnalytics(input = {}) {
 
 export async function listAdminAnalyticsRecords(input = {}) {
   const type = String(input.type || "").toLowerCase();
-  if (!["funding", "work", "unused-funding"].includes(type)) {
-    throw invalidInput("type must be funding, work, or unused-funding.");
+  if (!["funding", "work", "unused-funding", "reports-submitted", "reports-approved"].includes(type)) {
+    throw invalidInput("type must be funding, work, unused-funding, reports-submitted, or reports-approved.");
   }
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
   const pageSize = Math.min(30, Math.max(1, Number.parseInt(input.pageSize, 10) || 30));
   const skip = (page - 1) * pageSize;
+
+  if (type === "reports-submitted" || type === "reports-approved") {
+    if (!input.from || !input.to) throw invalidInput("Provide both from and to dates for funding report records.");
+    const from = utcDate(String(input.from), "from");
+    const to = utcDate(String(input.to), "to");
+    if (from > to) throw invalidInput("from must be on or before to.");
+    const endExclusive = new Date(to.getTime() + DAY_MS);
+    const dateField = type === "reports-approved" ? "processedAt" : "requestedAt";
+    const where = {
+      ...(type === "reports-approved" ? { status: "APPROVED" } : {}),
+      [dateField]: { gte: from, lt: endExclusive },
+    };
+    const [items, total] = await Promise.all([
+      prisma.fundingReport.findMany({
+        where,
+        orderBy: [{ [dateField]: "desc" }, { id: "desc" }],
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          status: true,
+          requestedAt: true,
+          processedAt: true,
+          employee: { select: { id: true, name: true, phone: true } },
+          fundingRequest: {
+            select: {
+              id: true,
+              accountName: true,
+              accountCategory: true,
+              amount: true,
+            },
+          },
+        },
+      }),
+      prisma.fundingReport.count({ where }),
+    ]);
+    return {
+      type,
+      items,
+      pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
+    };
+  }
 
   if (type === "unused-funding") {
     const where = {
