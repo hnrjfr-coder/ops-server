@@ -100,20 +100,21 @@ export async function listAdminStaff(input = {}) {
   };
 }
 
-export function canDeleteFundingRecord(record) {
-  if (!record) return false;
+export function canArchiveFundingRecord(record) {
+  if (!record || record.archivedAt) return false;
   if (record.status === "FUNDER_REJECTED") return record.work === null;
   const activities = [...(record.reports || []), ...(record.refunds || [])];
   return Boolean(record.work === null && activities.some((activity) => activity.status === "APPROVED"));
 }
 
-export async function deleteAdminFundingRecord(fundingRequestId) {
+export async function archiveAdminFundingRecord(fundingRequestId, adminId) {
   return prisma.$transaction(async (transaction) => {
     const funding = await transaction.fundingRequest.findUnique({
       where: { id: fundingRequestId },
       select: {
         id: true,
         status: true,
+        archivedAt: true,
         work: { select: { id: true } },
         reports: { select: { id: true, status: true } },
         refunds: { select: { id: true, status: true } },
@@ -124,19 +125,25 @@ export async function deleteAdminFundingRecord(fundingRequestId) {
       error.statusCode = 404;
       throw error;
     }
-    if (!canDeleteFundingRecord(funding)) {
-      const error = new Error("Only rejected funding requests without work, or funding requests with an approved report or refund and no work, can be deleted.");
+    if (!canArchiveFundingRecord(funding)) {
+      const error = new Error("Only rejected funding requests without work, or funding requests with an approved report or refund and no work, can be archived.");
       error.statusCode = 409;
       throw error;
     }
 
-    await transaction.workSubmission.updateMany({
-      where: { fundingRequestId },
-      data: { fundingRequestId: null },
+    const archived = await transaction.fundingRequest.updateMany({
+      where: { id: fundingRequestId, archivedAt: null },
+      data: { archivedAt: new Date(), archivedById: adminId },
     });
-    await transaction.refundRequest.deleteMany({ where: { fundingRequestId } });
-    await transaction.fundingReport.deleteMany({ where: { fundingRequestId } });
-    return transaction.fundingRequest.delete({ where: { id: fundingRequestId } });
+    if (archived.count !== 1) {
+      const error = new Error("This funding request has already been archived.");
+      error.statusCode = 409;
+      throw error;
+    }
+    return transaction.fundingRequest.findUnique({
+      where: { id: fundingRequestId },
+      select: { id: true, archivedAt: true, archivedById: true },
+    });
   });
 }
 

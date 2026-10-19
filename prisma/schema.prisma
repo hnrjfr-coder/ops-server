@@ -54,6 +54,7 @@ model User {
   fundingRequestsAsEmployee   FundingRequest[] @relation("FundingRequestEmployee")
   fundingRequestsAsFunder     FundingRequest[] @relation("FundingRequestFunder")
   fundingRequestsAsSupervisor FundingRequest[] @relation("FundingRequestSupervisor")
+  archivedFundingRequests     FundingRequest[] @relation("FundingRequestArchivedBy")
   refundRequestsAsEmployee    RefundRequest[]  @relation("RefundRequestEmployee")
   refundRequestsAsFunder      RefundRequest[]  @relation("RefundRequestFunder")
   fundingReportsAsEmployee    FundingReport[]  @relation("FundingReportEmployee")
@@ -108,6 +109,9 @@ model FundingRequest {
   funder          User            @relation("FundingRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
   supervisorId    String?
   supervisor      User?           @relation("FundingRequestSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  archivedAt      DateTime?
+  archivedById    String?
+  archivedBy      User?           @relation("FundingRequestArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
   accountName     String?
   accountCategory String?
   amount          Int

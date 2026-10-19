@@ -158,6 +158,15 @@ The approval is the system's confirmation that the payout was transferred.
 Indexes support the date and status filters; apply
 the additive Prisma schema with `npm run db:push` after review.
 
+Funding requests are archived rather than physically deleted so their history
+continues to support employee funding-cycle calculations. After applying the
+Prisma schema, install the database-level guard with
+`npm run db:guard-funding-history`; it rejects accidental SQL `DELETE` and
+`TRUNCATE` statements against funding requests, work submissions, funding
+reports, and refunds. Back up the database before either database operation.
+Database owners can still deliberately bypass or remove this guard, so do not
+manually delete funding-cycle history.
+
 Funding request states are `PENDING_FUNDER_APPROVAL`, `APPROVED`,
 `FUNDER_REJECTED`, `UNDER_SUPERVISOR_REVIEW`, `SUPERVISOR_REJECTED`, and
 `COMPLETED`. `APPROVED` means funds are reserved and work is awaited. Funding

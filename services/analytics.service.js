@@ -101,7 +101,7 @@ async function getCurrentSnapshot() {
     prisma.user.count({ where: { accountType: "EMPLOYEE" } }),
     prisma.user.count({ where: { accountType: "EMPLOYEE", status: "ACTIVE" } }),
     prisma.fundingRequest.aggregate({
-      where: { status: "PENDING_FUNDER_APPROVAL" },
+      where: { status: "PENDING_FUNDER_APPROVAL", archivedAt: null },
       _count: { _all: true },
       _sum: { amount: true },
     }),
@@ -116,13 +116,14 @@ async function getCurrentSnapshot() {
       _sum: { amount: true },
     }),
     prisma.fundingRequest.aggregate({
-      where: getConfirmedFundingWhere(),
+      where: { ...getConfirmedFundingWhere(), archivedAt: null },
       _count: { _all: true },
       _sum: { amount: true },
     }),
     prisma.fundingRequest.aggregate({
       where: {
         status: "APPROVED",
+        archivedAt: null,
         work: { is: null },
         reports: { none: {} },
         refunds: { none: {} },
@@ -131,7 +132,7 @@ async function getCurrentSnapshot() {
       _sum: { amount: true },
     }),
     prisma.fundingRequest.aggregate({
-      where: { approvedAt: { not: null }, work: { isNot: null } },
+      where: { approvedAt: { not: null }, work: { isNot: null }, archivedAt: null },
       _count: { _all: true },
       _sum: { amount: true },
     }),
@@ -185,7 +186,7 @@ export async function getAdminAnalytics(input = {}) {
         COUNT(*)::int AS count,
         COALESCE(SUM("amount"), 0)::float8 AS amount
       FROM "ops"."FundingRequest"
-      WHERE "approvedAt" >= ${from} AND "approvedAt" < ${endExclusive}
+      WHERE "archivedAt" IS NULL AND "approvedAt" >= ${from} AND "approvedAt" < ${endExclusive}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -195,7 +196,7 @@ export async function getAdminAnalytics(input = {}) {
         COUNT(*) FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL')::int AS "pendingCount",
         COALESCE(SUM("amount") FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL'), 0)::float8 AS "pendingAmount"
       FROM "ops"."FundingRequest"
-      WHERE "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
+      WHERE "archivedAt" IS NULL AND "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -203,7 +204,8 @@ export async function getAdminAnalytics(input = {}) {
         COUNT(*)::int AS "rejectedCount",
         COALESCE(SUM("amount"), 0)::float8 AS "rejectedAmount"
       FROM "ops"."FundingRequest"
-      WHERE "status" = 'FUNDER_REJECTED'
+      WHERE "archivedAt" IS NULL
+        AND "status" = 'FUNDER_REJECTED'
         AND "lastStatusChangedAt" >= ${from}
         AND "lastStatusChangedAt" < ${endExclusive}
       GROUP BY 1 ORDER BY 1
@@ -252,7 +254,8 @@ export async function getAdminAnalytics(input = {}) {
         COALESCE(SUM(funding."amount") FILTER (WHERE report."status" = 'PENDING_FUNDER_APPROVAL'), 0)::float8 AS "pendingAmount"
       FROM "ops"."FundingReport" AS report
       JOIN "ops"."FundingRequest" AS funding ON funding."id" = report."fundingRequestId"
-      WHERE report."requestedAt" >= ${from} AND report."requestedAt" < ${endExclusive}
+      WHERE funding."archivedAt" IS NULL
+        AND report."requestedAt" >= ${from} AND report."requestedAt" < ${endExclusive}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -263,7 +266,8 @@ export async function getAdminAnalytics(input = {}) {
         COALESCE(SUM(funding."amount") FILTER (WHERE report."status" = 'REJECTED'), 0)::float8 AS "rejectedAmount"
       FROM "ops"."FundingReport" AS report
       JOIN "ops"."FundingRequest" AS funding ON funding."id" = report."fundingRequestId"
-      WHERE report."processedAt" >= ${from} AND report."processedAt" < ${endExclusive}
+      WHERE funding."archivedAt" IS NULL
+        AND report."processedAt" >= ${from} AND report."processedAt" < ${endExclusive}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -442,6 +446,7 @@ export async function listAdminAnalyticsRecords(input = {}) {
     const endExclusive = new Date(to.getTime() + DAY_MS);
     const where = {
       status: "FUNDER_REJECTED",
+      archivedAt: null,
       lastStatusChangedAt: { gte: from, lt: endExclusive },
     };
     const [items, total] = await Promise.all([
@@ -476,6 +481,7 @@ export async function listAdminAnalyticsRecords(input = {}) {
     const dateField = type === "reports-approved" ? "processedAt" : "requestedAt";
     const where = {
       ...(type === "reports-approved" ? { status: "APPROVED" } : {}),
+      fundingRequest: { is: { archivedAt: null } },
       [dateField]: { gte: from, lt: endExclusive },
     };
     const [items, total] = await Promise.all([
@@ -512,6 +518,7 @@ export async function listAdminAnalyticsRecords(input = {}) {
   if (type === "unused-funding") {
     const where = {
       status: "APPROVED",
+      archivedAt: null,
       work: { is: null },
       reports: { none: {} },
       refunds: { none: {} },
@@ -538,7 +545,7 @@ export async function listAdminAnalyticsRecords(input = {}) {
   }
 
   if (type === "funding") {
-    const where = {};
+    const where = { archivedAt: null };
     const [items, total] = await Promise.all([
       prisma.fundingRequest.findMany({
         where,

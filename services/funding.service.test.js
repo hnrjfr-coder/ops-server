@@ -36,6 +36,22 @@ test("four active requests fill the current cycle", () => {
   );
 });
 
+test("a cycle does not reset until all four requests have supervisor approval", () => {
+  assert.equal(
+    requestsSinceCompletedBatch([
+      { status: "UNDER_SUPERVISOR_REVIEW" },
+      { status: "COMPLETED" },
+      { status: "COMPLETED" },
+      { status: "COMPLETED" },
+    ]),
+    4,
+  );
+  assert.equal(
+    requestsSinceCompletedBatch(statuses("COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED")),
+    0,
+  );
+});
+
 test("funder-rejected requests release their cycle slots", () => {
   assert.equal(
     requestsSinceCompletedBatch(statuses("PENDING_FUNDER_APPROVAL", "FUNDER_REJECTED", "APPROVED", "PENDING_FUNDER_APPROVAL")),
@@ -72,6 +88,16 @@ test("four consecutive completed requests reset the cycle", () => {
   assert.equal(
     requestsSinceCompletedBatch(statuses("COMPLETED", "COMPLETED", "COMPLETED", "COMPLETED")),
     0,
+  );
+});
+
+test("archived funding history still contributes to completed-cycle resets", () => {
+  assert.equal(
+    requestsSinceCompletedBatch([
+      { status: "PENDING_FUNDER_APPROVAL" },
+      ...Array.from({ length: 4 }, () => ({ status: "COMPLETED", archivedAt: new Date() })),
+    ]),
+    1,
   );
 });
 

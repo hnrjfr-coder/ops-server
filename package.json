@@ -8,6 +8,7 @@
     "test": "node --test",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
+    "db:guard-funding-history": "prisma db execute --file prisma/funding-history-delete-guard.sql --schema prisma/schema.prisma",
     "db:studio": "prisma studio"
   },
   "dependencies": {

@@ -267,12 +267,12 @@ export async function createFundingRequest(employeeId, input) {
 
   const fundingCycleRequests = await transaction.fundingRequest.findMany({
     where: { employeeId },
-    orderBy: { requestedAt: "desc" },
+    orderBy: [{ requestedAt: "desc" }, { id: "desc" }],
     select: {
       status: true,
       work: { select: { id: true } },
-      reports: { orderBy: { requestedAt: "desc" }, select: { id: true, status: true }, take: 1 },
-      refunds: { orderBy: { requestedAt: "desc" }, select: { id: true, status: true }, take: 1 },
+      reports: { orderBy: [{ requestedAt: "desc" }, { id: "desc" }], select: { id: true, status: true }, take: 1 },
+      refunds: { orderBy: [{ requestedAt: "desc" }, { id: "desc" }], select: { id: true, status: true }, take: 1 },
     },
   });
   const requestBlockReason = getFundingRequestBlockReason(fundingCycleRequests);
@@ -367,6 +367,7 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
   const dateRange = getFundingDateRange(input);
   const summaryWhere = {
     employeeId,
+    archivedAt: null,
     ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
   };
   const [summary, cycleRows, employee] = await Promise.all([

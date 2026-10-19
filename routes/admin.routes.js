@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
-import { approveEmployeeAccount, deleteAdminFundingRecord, getAdminOverview, getAdminSignupNotifications, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
+import { approveEmployeeAccount, archiveAdminFundingRecord, getAdminOverview, getAdminSignupNotifications, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
 import { getAdminAnalytics, listAdminAnalyticsRecords } from "../services/analytics.service.js";
 import { getAdminEarnings, listAdminPendingSubscriptions } from "../services/admin-earnings.service.js";
 import { decideFunderFundingRequest, deleteRejectedFunderFundingRequest, listAdminFunderFundingRequests } from "../services/funder-funding-request.service.js";
@@ -111,7 +111,7 @@ adminRouter.patch("/staff/:staffId/approval", async (request, response, next) =>
 
 adminRouter.delete("/analytics/funding/:fundingRequestId", async (request, response, next) => {
   try {
-    response.json(await deleteAdminFundingRecord(request.params.fundingRequestId));
+    response.json(await archiveAdminFundingRecord(request.params.fundingRequestId, request.authUser.id));
   } catch (error) {
     next(error);
   }
