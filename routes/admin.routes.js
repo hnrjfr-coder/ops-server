@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
 import { approveEmployeeAccount, deleteAdminFundingRecord, getAdminOverview, getAdminSignupNotifications, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
 import { getAdminAnalytics, listAdminAnalyticsRecords } from "../services/analytics.service.js";
-import { getAdminEarnings } from "../services/admin-earnings.service.js";
+import { getAdminEarnings, listAdminPendingSubscriptions } from "../services/admin-earnings.service.js";
 import { decideFunderFundingRequest, deleteRejectedFunderFundingRequest, listAdminFunderFundingRequests } from "../services/funder-funding-request.service.js";
 
 export const adminRouter = Router();
@@ -59,6 +59,14 @@ adminRouter.get("/analytics/records", async (request, response, next) => {
 adminRouter.get("/earnings", async (request, response, next) => {
   try {
     response.json(await getAdminEarnings(request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.get("/earnings/pending-subscriptions", async (request, response, next) => {
+  try {
+    response.json(await listAdminPendingSubscriptions(request.query));
   } catch (error) {
     next(error);
   }

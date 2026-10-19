@@ -45,6 +45,20 @@ export function getAdminSubscriptionEarning(accountName) {
   return ADMIN_SUBSCRIPTION_EARNING_RATES[String(accountName || "").trim().toUpperCase()] || 0;
 }
 
+export function getAdminPendingSubscriptionsWhere() {
+  return {
+    status: "UNDER_REVIEW",
+    accountCategory: "SUBSCRIPTION",
+    fundingRequest: {
+      is: {
+        status: "UNDER_SUPERVISOR_REVIEW",
+        accountCategory: "SUBSCRIPTION",
+        accountName: { in: accountNames },
+      },
+    },
+  };
+}
+
 export async function getAdminEarnings(input = {}) {
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
   const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
@@ -73,7 +87,7 @@ export async function getAdminEarnings(input = {}) {
   };
   const skip = (page - 1) * pageSize;
 
-  const [works, total, accountGroups] = await Promise.all([
+  const [works, total, accountGroups, pendingSubscriptionCount] = await Promise.all([
     prisma.workSubmission.findMany({
       where,
       orderBy: [{ approvedAt: "desc" }, { id: "desc" }],
@@ -96,6 +110,7 @@ export async function getAdminEarnings(input = {}) {
       where,
       _count: { _all: true },
     }),
+    prisma.workSubmission.count({ where: getAdminPendingSubscriptionsWhere() }),
   ]);
 
   const byAccount = Object.fromEntries(accountNames.map((name) => [name, { count: 0, amount: 0 }]));
@@ -119,7 +134,35 @@ export async function getAdminEarnings(input = {}) {
       ...work,
       earningAmount: getAdminSubscriptionEarning(work.accountName),
     })),
-    summary: { ...summary, byAccount },
+    summary: { ...summary, byAccount, pendingSubscriptionCount },
+    pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
+  };
+}
+
+export async function listAdminPendingSubscriptions(input = {}) {
+  const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
+  const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
+  const where = getAdminPendingSubscriptionsWhere();
+  const [items, total] = await Promise.all([
+    prisma.workSubmission.findMany({
+      where,
+      orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        accountName: true,
+        accountCategory: true,
+        submittedAt: true,
+        employee: { select: { id: true, name: true, phone: true, email: true } },
+        supervisor: { select: { id: true, name: true, email: true, phone: true } },
+        fundingRequest: { select: { id: true, accountName: true, accountCategory: true } },
+      },
+    }),
+    prisma.workSubmission.count({ where }),
+  ]);
+  return {
+    items,
     pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
   };
 }
