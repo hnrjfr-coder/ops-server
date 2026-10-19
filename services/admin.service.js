@@ -102,6 +102,7 @@ export async function listAdminStaff(input = {}) {
 
 export function canArchiveFundingRecord(record) {
   if (!record || record.archivedAt) return false;
+  if (record.status === "REFUNDED") return true;
   if (record.status === "FUNDER_REJECTED") return record.work === null;
   const activities = [...(record.reports || []), ...(record.refunds || [])];
   return Boolean(record.work === null && activities.some((activity) => activity.status === "APPROVED"));

@@ -8,6 +8,11 @@ test("admin can archive rejected funding only when no work submission is attache
   assert.equal(canArchiveFundingRecord({ status: "FUNDER_REJECTED", work: null, archivedAt: new Date() }), false);
 });
 
+test("admin can archive refunded funding even when linked work must be retained", () => {
+  assert.equal(canArchiveFundingRecord({ status: "REFUNDED", work: { id: "work-1" } }), true);
+  assert.equal(canArchiveFundingRecord({ status: "REFUNDED", work: null, archivedAt: new Date() }), false);
+});
+
 test("archiving non-rejected funding requires an approved report or refund without work", () => {
   assert.equal(canArchiveFundingRecord({
     status: "APPROVED",

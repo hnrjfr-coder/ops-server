@@ -167,6 +167,11 @@ reports, and refunds. Back up the database before either database operation.
 Database owners can still deliberately bypass or remove this guard, so do not
 manually delete funding-cycle history.
 
+To hide already-refunded funding requests from analytics without deleting
+their history, run `npm run db:archive-refunded-funding`. This archives only
+unarchived requests whose funding status is `REFUNDED`; it does not remove
+linked work or recreate deleted refund records.
+
 Funding request states are `PENDING_FUNDER_APPROVAL`, `APPROVED`,
 `FUNDER_REJECTED`, `UNDER_SUPERVISOR_REVIEW`, `SUPERVISOR_REJECTED`, and
 `COMPLETED`. `APPROVED` means funds are reserved and work is awaited. Funding
