@@ -59,6 +59,13 @@ export function getAdminPendingSubscriptionsWhere() {
   };
 }
 
+export function sumAdminSubscriptionEarnings(groups = []) {
+  return groups.reduce((total, group) => {
+    const count = Number(group?._count?._all) || 0;
+    return total + count * getAdminSubscriptionEarning(group?.accountName);
+  }, 0);
+}
+
 export async function getAdminEarnings(input = {}) {
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
   const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
@@ -87,7 +94,7 @@ export async function getAdminEarnings(input = {}) {
   };
   const skip = (page - 1) * pageSize;
 
-  const [works, total, accountGroups, pendingSubscriptionCount] = await Promise.all([
+  const [works, total, accountGroups, pendingSubscriptionGroups] = await Promise.all([
     prisma.workSubmission.findMany({
       where,
       orderBy: [{ approvedAt: "desc" }, { id: "desc" }],
@@ -110,7 +117,11 @@ export async function getAdminEarnings(input = {}) {
       where,
       _count: { _all: true },
     }),
-    prisma.workSubmission.count({ where: getAdminPendingSubscriptionsWhere() }),
+    prisma.workSubmission.groupBy({
+      by: ["accountName"],
+      where: getAdminPendingSubscriptionsWhere(),
+      _count: { _all: true },
+    }),
   ]);
 
   const byAccount = Object.fromEntries(accountNames.map((name) => [name, { count: 0, amount: 0 }]));
@@ -134,7 +145,15 @@ export async function getAdminEarnings(input = {}) {
       ...work,
       earningAmount: getAdminSubscriptionEarning(work.accountName),
     })),
-    summary: { ...summary, byAccount, pendingSubscriptionCount },
+    summary: {
+      ...summary,
+      byAccount,
+      pendingSubscriptionCount: pendingSubscriptionGroups.reduce(
+        (count, group) => count + group._count._all,
+        0,
+      ),
+      pendingSubscriptionAmount: sumAdminSubscriptionEarnings(pendingSubscriptionGroups),
+    },
     pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
   };
 }

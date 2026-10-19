@@ -4,6 +4,7 @@ import {
   ADMIN_SUBSCRIPTION_EARNING_RATES,
   getAdminPendingSubscriptionsWhere,
   getAdminSubscriptionEarning,
+  sumAdminSubscriptionEarnings,
 } from "./admin-earnings.service.js";
 
 test("admin subscription earnings use the approved per-account rates", () => {
@@ -29,4 +30,15 @@ test("pending subscription records include only submitted subscription work awai
       },
     },
   });
+});
+
+test("pending subscription earnings apply each account's fixed rate", () => {
+  assert.equal(
+    sumAdminSubscriptionEarnings([
+      { accountName: "SWAGGZ", _count: { _all: 2 } },
+      { accountName: "NEILA", _count: { _all: 3 } },
+      { accountName: "OTHER", _count: { _all: 4 } },
+    ]),
+    35_500,
+  );
 });
