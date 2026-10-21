@@ -2,7 +2,12 @@ import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
 import { approveEmployeeAccount, archiveAdminFundingRecord, getAdminOverview, getAdminSignupNotifications, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
 import { getAdminAnalytics, listAdminAnalyticsRecords } from "../services/analytics.service.js";
-import { getAdminEarnings, listAdminPendingSubscriptions } from "../services/admin-earnings.service.js";
+import {
+  createAdminEarningWithdrawal,
+  getAdminEarnings,
+  listAdminEarningWithdrawals,
+  listAdminPendingSubscriptions,
+} from "../services/admin-earnings.service.js";
 import { decideFunderFundingRequest, deleteRejectedFunderFundingRequest, listAdminFunderFundingRequests } from "../services/funder-funding-request.service.js";
 
 export const adminRouter = Router();
@@ -67,6 +72,22 @@ adminRouter.get("/earnings", async (request, response, next) => {
 adminRouter.get("/earnings/pending-subscriptions", async (request, response, next) => {
   try {
     response.json(await listAdminPendingSubscriptions(request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.get("/earnings/withdrawals", async (request, response, next) => {
+  try {
+    response.json(await listAdminEarningWithdrawals(request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.post("/earnings/withdrawals", async (request, response, next) => {
+  try {
+    response.status(201).json(await createAdminEarningWithdrawal(request.body, request.authUser.id));
   } catch (error) {
     next(error);
   }

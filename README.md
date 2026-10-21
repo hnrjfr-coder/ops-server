@@ -235,6 +235,10 @@ npm run db:generate
 npm run db:push
 ```
 
+Admin earnings withdrawals are stored in `AdminEarningWithdrawal` and deducted
+from the available balance. Apply the schema update before deploying the
+withdrawal endpoints.
+
 Existing `PaymentRequest` and work records are retained as legacy history and
 are not automatically converted into funding requests. Set existing
 funder profiles to `FUNDER` and supervisor profiles to `SUPERVISOR`, then link

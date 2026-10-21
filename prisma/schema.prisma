@@ -49,6 +49,7 @@ model User {
   payments                    PaymentRequest[]
   payoutRequests              PayoutRequest[]  @relation("EmployeePayoutRequests")
   reviewedPayoutRequests      PayoutRequest[]  @relation("AdminPayoutReviews")
+  adminEarningWithdrawals     AdminEarningWithdrawal[] @relation("AdminEarningWithdrawals")
   supervisedWork              WorkSubmission[] @relation("SupervisorWork")
   supervisedPayments          PaymentRequest[] @relation("SupervisorPayments")
   fundingRequestsAsEmployee   FundingRequest[] @relation("FundingRequestEmployee")
@@ -248,5 +249,18 @@ model PayoutRequest {
   @@index([status, requestedAt])
   @@index([requestedAt])
   @@index([processedAt])
+  @@schema("ops")
+}
+
+model AdminEarningWithdrawal {
+  id        String   @id @default(cuid())
+  amount    Int
+  purpose   String
+  createdAt DateTime @default(now())
+  adminId   String
+  admin     User     @relation("AdminEarningWithdrawals", fields: [adminId], references: [id], onDelete: Restrict)
+
+  @@index([createdAt])
+  @@index([adminId, createdAt])
   @@schema("ops")
 }

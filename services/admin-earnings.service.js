@@ -66,12 +66,8 @@ export function sumAdminSubscriptionEarnings(groups = []) {
   }, 0);
 }
 
-export async function getAdminEarnings(input = {}) {
-  const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
-  const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
-  const search = String(input.search || "").trim();
-  const approvedAt = getDateRange(input);
-  const where = {
+function getAdminEarningWorkWhere() {
+  return {
     status: "COMPLETED",
     accountCategory: "SUBSCRIPTION",
     fundingRequest: {
@@ -80,6 +76,23 @@ export async function getAdminEarnings(input = {}) {
         accountName: { in: accountNames },
       },
     },
+    approvedAt: { not: null },
+  };
+}
+
+function parsePagination(input = {}) {
+  const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
+  const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
+  return { page, pageSize, skip: (page - 1) * pageSize };
+}
+
+export async function getAdminEarnings(input = {}) {
+  const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
+  const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
+  const search = String(input.search || "").trim();
+  const approvedAt = getDateRange(input);
+  const where = {
+    ...getAdminEarningWorkWhere(),
     approvedAt: { not: null, ...(approvedAt || {}) },
     ...(search
       ? {
@@ -94,7 +107,7 @@ export async function getAdminEarnings(input = {}) {
   };
   const skip = (page - 1) * pageSize;
 
-  const [works, total, accountGroups, pendingSubscriptionGroups] = await Promise.all([
+  const [works, total, accountGroups, lifetimeAccountGroups, pendingSubscriptionGroups, withdrawals] = await Promise.all([
     prisma.workSubmission.findMany({
       where,
       orderBy: [{ approvedAt: "desc" }, { id: "desc" }],
@@ -119,9 +132,15 @@ export async function getAdminEarnings(input = {}) {
     }),
     prisma.workSubmission.groupBy({
       by: ["accountName"],
+      where: getAdminEarningWorkWhere(),
+      _count: { _all: true },
+    }),
+    prisma.workSubmission.groupBy({
+      by: ["accountName"],
       where: getAdminPendingSubscriptionsWhere(),
       _count: { _all: true },
     }),
+    prisma.adminEarningWithdrawal.aggregate({ _sum: { amount: true } }),
   ]);
 
   const byAccount = Object.fromEntries(accountNames.map((name) => [name, { count: 0, amount: 0 }]));
@@ -139,6 +158,9 @@ export async function getAdminEarnings(input = {}) {
     }),
     { count: 0, amount: 0 },
   );
+  const earnedAmount = sumAdminSubscriptionEarnings(lifetimeAccountGroups);
+  const withdrawnAmount = withdrawals._sum.amount || 0;
+  const earnedCount = lifetimeAccountGroups.reduce((count, group) => count + group._count._all, 0);
 
   return {
     items: works.map((work) => ({
@@ -148,12 +170,91 @@ export async function getAdminEarnings(input = {}) {
     summary: {
       ...summary,
       byAccount,
+      earnedCount,
+      earnedAmount,
+      withdrawnAmount,
+      balance: earnedAmount - withdrawnAmount,
       pendingSubscriptionCount: pendingSubscriptionGroups.reduce(
         (count, group) => count + group._count._all,
         0,
       ),
       pendingSubscriptionAmount: sumAdminSubscriptionEarnings(pendingSubscriptionGroups),
     },
+    pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
+  };
+}
+
+export async function createAdminEarningWithdrawal(input = {}, adminId) {
+  const payload = input && typeof input === "object" ? input : {};
+  const amount = payload.amount;
+  const purpose = typeof payload.purpose === "string" ? payload.purpose.trim() : "";
+  if (!Number.isSafeInteger(amount) || amount < 1 || amount > 2_147_483_647) {
+    throw serviceError("Enter a valid withdrawal amount between 1 and 2,147,483,647 NGN.");
+  }
+  if (!purpose || purpose.length > 500) {
+    throw serviceError("Enter a withdrawal purpose between 1 and 500 characters.");
+  }
+  if (!adminId) throw serviceError("An authenticated admin account is required.", 401);
+
+  try {
+    return await prisma.$transaction(async (transaction) => {
+      const admin = await transaction.user.findUnique({
+        where: { id: adminId },
+        select: { id: true, accountType: true },
+      });
+      if (!admin || admin.accountType !== "ADMIN") {
+        throw serviceError("Admin account was not found.", 403);
+      }
+      const [earnedGroups, withdrawals] = await Promise.all([
+        transaction.workSubmission.groupBy({
+          by: ["accountName"],
+          where: getAdminEarningWorkWhere(),
+          _count: { _all: true },
+        }),
+        transaction.adminEarningWithdrawal.aggregate({ _sum: { amount: true } }),
+      ]);
+      const balance = sumAdminSubscriptionEarnings(earnedGroups) - (withdrawals._sum.amount || 0);
+      if (amount > balance) {
+        throw serviceError(`Withdrawal amount exceeds the available balance of ${balance} NGN.`, 409);
+      }
+      return transaction.adminEarningWithdrawal.create({
+        data: { amount, purpose, adminId: admin.id },
+        select: {
+          id: true,
+          amount: true,
+          purpose: true,
+          createdAt: true,
+          admin: { select: { id: true, name: true, email: true } },
+        },
+      });
+    }, { isolationLevel: "Serializable" });
+  } catch (error) {
+    if (error.code === "P2034") {
+      throw serviceError("The available balance changed while recording the withdrawal. Refresh and try again.", 409);
+    }
+    throw error;
+  }
+}
+
+export async function listAdminEarningWithdrawals(input = {}) {
+  const { page, pageSize, skip } = parsePagination(input);
+  const [items, total] = await Promise.all([
+    prisma.adminEarningWithdrawal.findMany({
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip,
+      take: pageSize,
+      select: {
+        id: true,
+        amount: true,
+        purpose: true,
+        createdAt: true,
+        admin: { select: { id: true, name: true, email: true } },
+      },
+    }),
+    prisma.adminEarningWithdrawal.count(),
+  ]);
+  return {
+    items,
     pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
   };
 }

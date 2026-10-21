@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   ADMIN_SUBSCRIPTION_EARNING_RATES,
+  createAdminEarningWithdrawal,
   getAdminPendingSubscriptionsWhere,
   getAdminSubscriptionEarning,
   sumAdminSubscriptionEarnings,
@@ -40,5 +41,24 @@ test("pending subscription earnings apply each account's fixed rate", () => {
       { accountName: "OTHER", _count: { _all: 4 } },
     ]),
     35_500,
+  );
+});
+
+test("admin withdrawals reject invalid amounts and empty or oversized purposes", async () => {
+  await assert.rejects(
+    createAdminEarningWithdrawal({ amount: 0, purpose: "Office supplies" }, "admin-1"),
+    /valid withdrawal amount/,
+  );
+  await assert.rejects(
+    createAdminEarningWithdrawal({ amount: "100", purpose: "Office supplies" }, "admin-1"),
+    /valid withdrawal amount/,
+  );
+  await assert.rejects(
+    createAdminEarningWithdrawal({ amount: 1, purpose: "   " }, "admin-1"),
+    /withdrawal purpose/,
+  );
+  await assert.rejects(
+    createAdminEarningWithdrawal({ amount: 1, purpose: "x".repeat(501) }, "admin-1"),
+    /withdrawal purpose/,
   );
 });
