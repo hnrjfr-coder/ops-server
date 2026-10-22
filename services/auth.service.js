@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../lib/prisma.js";
 import { getSupabaseAdmin } from "../lib/supabase.js";
+import { findUserByAuthIdentity } from "../lib/auth-profile.js";
 import { accountTypes, isValidRegistrationOption } from "../config/registration-options.js";
 
 const publicUser = (user) => {
@@ -207,7 +208,7 @@ export async function loginUser(input) {
       authError.statusCode = 401;
       throw authError;
     }
-    const profile = await prisma.user.findUnique({ where: { id: data.user.id } });
+    const profile = await findUserByAuthIdentity(data.user);
     if (!profile) {
       const profileError = new Error("Your account profile is not configured.");
       profileError.statusCode = 403;

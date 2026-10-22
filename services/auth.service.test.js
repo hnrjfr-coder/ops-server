@@ -1,6 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { findUserByAuthIdentity } from "../lib/auth-profile.js";
 import { resolveRegistrationSupervisor } from "./auth.service.js";
+
+test("auth profile lookup falls back to the normalized email when the auth ID is mismatched", async () => {
+  const profile = { id: "legacy-profile-id", email: "employee@example.com" };
+  const lookups = [];
+  const userRepository = {
+    async findUnique({ where }) {
+      lookups.push(where);
+      return where.id ? null : profile;
+    },
+  };
+
+  const result = await findUserByAuthIdentity({
+    id: "supabase-auth-id",
+    email: " Employee@Example.com ",
+  }, userRepository);
+
+  assert.equal(result, profile);
+  assert.deepEqual(lookups, [
+    { id: "supabase-auth-id" },
+    { email: "employee@example.com" },
+  ]);
+});
 
 test("registration resolves the selected funder to its sole active supervisor", () => {
   assert.equal(resolveRegistrationSupervisor([{ id: "supervisor-1" }]), "supervisor-1");

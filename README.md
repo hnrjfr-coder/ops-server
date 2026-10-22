@@ -347,6 +347,10 @@ Prisma. The secret key must stay server-side and must never be added to the
 frontend or committed to git. Without those variables, local development uses
 the existing Prisma fallback.
 
+Supabase sign-in resolves the OPS profile by Auth user ID first and falls back
+to the authenticated email for legacy profiles whose IDs do not match. The
+same resolution is used by authenticated API requests.
+
 ## Local test accounts
 
 Test-account credentials are stored in the git-ignored
