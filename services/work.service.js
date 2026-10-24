@@ -31,8 +31,8 @@ export function getPendingFirstPagePlan(skip, pageSize, pendingCount) {
   };
 }
 
-export async function createWorkSubmission(input) {
-  const employeeId = String(input.employeeId || "").trim();
+export async function createWorkSubmission(input, database = prisma) {
+  const employeeId = String(input.employeeId || "");
   const fundingRequestId = String(input.fundingRequestId || "").trim();
   const notes = String(input.notes || "").trim() || null;
 
@@ -42,7 +42,7 @@ export async function createWorkSubmission(input) {
     throw error;
   }
 
-  return prisma.$transaction(async (transaction) => {
+  return database.$transaction(async (transaction) => {
     const employee = await transaction.user.findUnique({ where: { id: employeeId } });
     if (!employee || employee.accountType !== "EMPLOYEE" || employee.status !== "ACTIVE") {
       const error = new Error("Active employee account was not found.");
