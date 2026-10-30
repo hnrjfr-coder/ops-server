@@ -1,6 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { summarizeManualPayoutWorks } from "./payout.service.js";
+import { summarizeAdminPayoutGroups, summarizeManualPayoutWorks } from "./payout.service.js";
+
+test("admin payout summary totals pending and paid requests and excludes rejected requests", () => {
+  assert.deepEqual(summarizeAdminPayoutGroups([
+    { status: "PENDING", _count: { _all: 2 }, _sum: { amount: 6000 } },
+    { status: "PAID", _count: { _all: 3 }, _sum: { amount: 18000 } },
+    { status: "REJECTED", _count: { _all: 1 }, _sum: { amount: 3000 } },
+  ]), {
+    pendingAmount: 6000,
+    pendingCount: 2,
+    approvedAmount: 18000,
+    approvedCount: 3,
+    totalAmount: 24000,
+    totalCount: 5,
+  });
+});
+
+test("admin payout summary returns zero totals when no eligible requests exist", () => {
+  assert.deepEqual(summarizeAdminPayoutGroups([]), {
+    pendingAmount: 0,
+    pendingCount: 0,
+    approvedAmount: 0,
+    approvedCount: 0,
+    totalAmount: 0,
+    totalCount: 0,
+  });
+});
 
 test("manual payout records the admin-entered amount and includes every available approved work", () => {
   const works = Array.from({ length: 4 }, (_, index) => ({ id: `work-${index + 1}` }));

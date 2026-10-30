@@ -4,6 +4,7 @@ import {
   createEmployeePayoutRequest,
   createManualPayout,
   decidePayoutRequest,
+  getAdminPayoutSummary,
   getEmployeePayoutSummary,
   listAdminPayoutRequests,
   listEmployeePayoutRequests,
@@ -40,6 +41,14 @@ payoutRouter.post("/requests", requireAuthenticatedAccountType("EMPLOYEE"), asyn
 payoutRouter.get("/admin/requests", requireAuthenticatedAccountType("ADMIN"), async (request, response, next) => {
   try {
     response.json(await listAdminPayoutRequests(request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+payoutRouter.get("/admin/summary", requireAuthenticatedAccountType("ADMIN"), async (_request, response, next) => {
+  try {
+    response.json(await getAdminPayoutSummary());
   } catch (error) {
     next(error);
   }

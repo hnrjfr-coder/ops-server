@@ -21,6 +21,25 @@ export function sumPaidPayoutAmounts(payoutRequests) {
     .reduce((total, payout) => total + Number(payout.amount || 0), 0);
 }
 
+export function summarizeAdminPayoutGroups(groups) {
+  const summary = groups.reduce((result, group) => {
+    if (group.status === "PENDING") {
+      result.pendingAmount = group._sum.amount || 0;
+      result.pendingCount = group._count._all;
+    } else if (group.status === "PAID") {
+      result.approvedAmount = group._sum.amount || 0;
+      result.approvedCount = group._count._all;
+    }
+    return result;
+  }, { pendingAmount: 0, pendingCount: 0, approvedAmount: 0, approvedCount: 0 });
+
+  return {
+    ...summary,
+    totalAmount: summary.pendingAmount + summary.approvedAmount,
+    totalCount: summary.pendingCount + summary.approvedCount,
+  };
+}
+
 function createError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -226,6 +245,16 @@ export async function listAdminPayoutRequests(input = {}) {
     prisma.payoutRequest.count({ where }),
   ]);
   return paginatedResult(items, total, page, pageSize);
+}
+
+export async function getAdminPayoutSummary() {
+  const groups = await prisma.payoutRequest.groupBy({
+    by: ["status"],
+    where: { status: { in: ["PENDING", "PAID"] } },
+    _count: { _all: true },
+    _sum: { amount: true },
+  });
+  return summarizeAdminPayoutGroups(groups);
 }
 
 export async function searchAdminPayoutEmployees(input = {}) {
