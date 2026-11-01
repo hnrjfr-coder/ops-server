@@ -10,6 +10,7 @@ import { funderRouter } from "./routes/funder.routes.js";
 import { payoutRouter } from "./routes/payout.routes.js";
 import { adminRouter } from "./routes/admin.routes.js";
 import { leaderboardRouter } from "./routes/leaderboard.routes.js";
+import { operationsRouter } from "./routes/operations.routes.js";
 import { createCorsMiddleware, getAllowedOrigins } from "./lib/cors.js";
 
 const app = express();
@@ -19,6 +20,7 @@ const allowedOrigins = getAllowedOrigins(process.env.CLIENT_ORIGIN ?? "http://lo
 app.use(createCorsMiddleware(allowedOrigins));
 app.use(express.json());
 app.use("/api/auth", authRouter);
+app.use("/api/operations", operationsRouter);
 app.use("/api/works", workRouter);
 app.use("/api/funding-requests", fundingRouter);
 app.use("/api/funder", funderRouter);

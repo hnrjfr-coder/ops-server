@@ -28,12 +28,19 @@ npx prisma db push
 Use `npx prisma studio` to inspect the Supabase database. OPS tables are
 created under the dedicated `ops` schema, leaving other schemas untouched.
 
+Administrators can pause and reopen employee funding, work, refund, use-of-funds
+report, and payout requests in Admin Settings. Apply the schema with
+`npx prisma db push` before deploying the backend. While requests are paused,
+employee dashboards show a period-end notice and the API rejects request
+submissions; read-only access remains available.
+
 ## Endpoints
 
 - `GET /api/health`
 - `GET /api/auth/options`
 - `POST /api/auth/register`
 - `POST /api/auth/login`
+- `GET /api/operations/employee-requests` (employee request availability)
 - `GET /api/funding-requests/summary`
 - `GET /api/funding-requests?page=1&pageSize=20`
 - `POST /api/funding-requests`
@@ -51,6 +58,8 @@ created under the dedicated `ops` schema, leaving other schemas untouched.
 - `GET /api/payouts/admin/requests` (admin only)
 - `GET /api/payouts/admin/employees?search=...` (admin only)
 - `POST /api/payouts/admin/manual` (admin only)
+- `GET /api/admin/employee-requests` (admin only)
+- `PUT /api/admin/employee-requests` with `{ "enabled": false }` or `{ "enabled": true }` (admin only)
 - `PATCH /api/payouts/admin/requests/:requestId` (admin only)
 - `GET /api/supervisor/works`
 - `GET /api/supervisor/funding-summary`

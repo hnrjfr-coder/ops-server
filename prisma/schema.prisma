@@ -264,3 +264,11 @@ model AdminEarningWithdrawal {
   @@index([adminId, createdAt])
   @@schema("ops")
 }
+
+model EmployeeRequestSetting {
+  id        String   @id @default("global")
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@schema("ops")
+}

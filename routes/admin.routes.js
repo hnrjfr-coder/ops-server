@@ -9,6 +9,7 @@ import {
   listAdminPendingSubscriptions,
 } from "../services/admin-earnings.service.js";
 import { decideFunderFundingRequest, deleteRejectedFunderFundingRequest, listAdminFunderFundingRequests } from "../services/funder-funding-request.service.js";
+import { getEmployeeRequestSettings, updateEmployeeRequestSettings } from "../services/employee-request-settings.service.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuthenticatedAccountType("ADMIN"));
@@ -24,6 +25,22 @@ adminRouter.get("/overview", async (_request, response, next) => {
 adminRouter.get("/notifications", async (_request, response, next) => {
   try {
     response.json(await getAdminSignupNotifications());
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.get("/employee-requests", async (_request, response, next) => {
+  try {
+    response.json(await getEmployeeRequestSettings());
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.put("/employee-requests", async (request, response, next) => {
+  try {
+    response.json(await updateEmployeeRequestSettings(request.body?.enabled));
   } catch (error) {
     next(error);
   }
