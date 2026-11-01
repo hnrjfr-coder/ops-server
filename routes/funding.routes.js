@@ -1,9 +1,8 @@
 import { Router } from "express";
-import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
+import { requireAuthenticatedAccountType, requireFundingRequestsEnabled } from "../middleware/auth.middleware.js";
 import { createFundingRequest, getEmployeeFundingSummary, listEmployeeFundingRequests } from "../services/funding.service.js";
 import { createEmployeeRefundRequest, getEmployeeRefundDetails, listEmployeeRefundRequests } from "../services/refund.service.js";
 import { createEmployeeFundingReport, getEmployeeFundingReportSummary, listEmployeeFundingReports } from "../services/funding-report.service.js";
-import { requireEmployeeRequestsEnabled } from "../middleware/auth.middleware.js";
 
 export const fundingRouter = Router();
 fundingRouter.use(requireAuthenticatedAccountType("EMPLOYEE"));
@@ -40,7 +39,7 @@ fundingRouter.get("/:requestId/refund-details", async (request, response, next) 
   }
 });
 
-fundingRouter.post("/:requestId/refund", requireEmployeeRequestsEnabled, async (request, response, next) => {
+fundingRouter.post("/:requestId/refund", async (request, response, next) => {
   try {
     const refund = await createEmployeeRefundRequest(request.authUser.id, {
       ...request.body,
@@ -70,7 +69,7 @@ fundingRouter.get("/", async (request, response, next) => {
   }
 });
 
-fundingRouter.post("/", requireEmployeeRequestsEnabled, async (request, response, next) => {
+fundingRouter.post("/", requireFundingRequestsEnabled, async (request, response, next) => {
   try {
     const fundingRequest = await createFundingRequest(request.authUser.id, request.body);
     response.status(201).json(fundingRequest);
@@ -79,7 +78,7 @@ fundingRouter.post("/", requireEmployeeRequestsEnabled, async (request, response
   }
 });
 
-fundingRouter.post("/:requestId/report", requireEmployeeRequestsEnabled, async (request, response, next) => {
+fundingRouter.post("/:requestId/report", async (request, response, next) => {
   try {
     const report = await createEmployeeFundingReport(request.authUser.id, request.params.requestId);
     response.status(201).json(report);

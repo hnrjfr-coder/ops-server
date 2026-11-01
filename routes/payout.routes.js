@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuthenticatedAccountType, requireEmployeeRequestsEnabled } from "../middleware/auth.middleware.js";
+import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
 import {
   createEmployeePayoutRequest,
   createManualPayout,
@@ -29,7 +29,7 @@ payoutRouter.get("/requests", requireAuthenticatedAccountType("EMPLOYEE"), async
   }
 });
 
-payoutRouter.post("/requests", requireAuthenticatedAccountType("EMPLOYEE"), requireEmployeeRequestsEnabled, async (request, response, next) => {
+payoutRouter.post("/requests", requireAuthenticatedAccountType("EMPLOYEE"), async (request, response, next) => {
   try {
     const payoutRequest = await createEmployeePayoutRequest(request.authUser.id);
     response.status(201).json(payoutRequest);

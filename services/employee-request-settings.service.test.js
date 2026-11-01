@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  EMPLOYEE_REQUESTS_CLOSED_MESSAGE,
+  FUNDING_REQUESTS_CLOSED_MESSAGE,
   getEmployeeRequestSettings,
   updateEmployeeRequestSettings,
 } from "./employee-request-settings.service.js";
@@ -17,7 +17,7 @@ test("employee requests default to enabled until an administrator changes the se
 
   assert.deepEqual(await getEmployeeRequestSettings(database), {
     enabled: true,
-    message: EMPLOYEE_REQUESTS_CLOSED_MESSAGE,
+    message: FUNDING_REQUESTS_CLOSED_MESSAGE,
   });
 });
 
@@ -32,7 +32,7 @@ test("employee request settings can be read as disabled", async () => {
 
   assert.deepEqual(await getEmployeeRequestSettings(database), {
     enabled: false,
-    message: EMPLOYEE_REQUESTS_CLOSED_MESSAGE,
+    message: FUNDING_REQUESTS_CLOSED_MESSAGE,
   });
 });
 

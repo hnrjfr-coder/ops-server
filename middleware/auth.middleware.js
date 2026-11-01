@@ -1,7 +1,7 @@
 import { verifyAuth } from "@supabase/server/core";
 import { findUserByAuthIdentity } from "../lib/auth-profile.js";
 import {
-  EMPLOYEE_REQUESTS_CLOSED_MESSAGE,
+  FUNDING_REQUESTS_CLOSED_MESSAGE,
   getEmployeeRequestSettings,
 } from "../services/employee-request-settings.service.js";
 
@@ -13,13 +13,13 @@ export function requireAuthenticatedAccountType(...allowedTypes) {
   return createAccountTypeMiddleware(allowedTypes, true);
 }
 
-export function requireEmployeeRequestsEnabled(_request, response, next) {
+export function requireFundingRequestsEnabled(_request, response, next) {
   getEmployeeRequestSettings()
     .then(({ enabled }) => {
       if (enabled) return next();
       return response.status(423).json({
-        code: "EMPLOYEE_REQUESTS_CLOSED",
-        error: EMPLOYEE_REQUESTS_CLOSED_MESSAGE,
+        code: "FUNDING_REQUESTS_CLOSED",
+        error: FUNDING_REQUESTS_CLOSED_MESSAGE,
       });
     })
     .catch(next);
