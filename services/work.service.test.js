@@ -18,7 +18,6 @@ test("work submission preserves an employee ID with a leading newline", async ()
         return {
           status: "APPROVED",
           work: null,
-          reports: [],
           refunds: [],
           accountName: "Monthly plan",
           accountCategory: "SUBSCRIPTION",

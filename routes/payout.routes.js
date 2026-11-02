@@ -31,7 +31,7 @@ payoutRouter.get("/requests", requireAuthenticatedAccountType("EMPLOYEE"), async
 
 payoutRouter.post("/requests", requireAuthenticatedAccountType("EMPLOYEE"), async (request, response, next) => {
   try {
-    const payoutRequest = await createEmployeePayoutRequest(request.authUser.id);
+    const payoutRequest = await createEmployeePayoutRequest(request.authUser.id, request.body?.workCount);
     response.status(201).json(payoutRequest);
   } catch (error) {
     next(error);

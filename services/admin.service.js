@@ -104,8 +104,7 @@ export function canArchiveFundingRecord(record) {
   if (!record || record.archivedAt) return false;
   if (record.status === "REFUNDED") return true;
   if (record.status === "FUNDER_REJECTED") return record.work === null;
-  const activities = [...(record.reports || []), ...(record.refunds || [])];
-  return Boolean(record.work === null && activities.some((activity) => activity.status === "APPROVED"));
+  return Boolean(record.work === null && record.refunds?.some((refund) => refund.status === "APPROVED"));
 }
 
 export async function archiveAdminFundingRecord(fundingRequestId, adminId) {
@@ -117,7 +116,6 @@ export async function archiveAdminFundingRecord(fundingRequestId, adminId) {
         status: true,
         archivedAt: true,
         work: { select: { id: true } },
-        reports: { select: { id: true, status: true } },
         refunds: { select: { id: true, status: true } },
       },
     });
@@ -127,7 +125,7 @@ export async function archiveAdminFundingRecord(fundingRequestId, adminId) {
       throw error;
     }
     if (!canArchiveFundingRecord(funding)) {
-      const error = new Error("Only rejected funding requests without work, or funding requests with an approved report or refund and no work, can be archived.");
+      const error = new Error("Only rejected funding requests without work, or funding requests with an approved refund and no work, can be archived.");
       error.statusCode = 409;
       throw error;
     }
@@ -146,6 +144,100 @@ export async function archiveAdminFundingRecord(fundingRequestId, adminId) {
       select: { id: true, archivedAt: true, archivedById: true },
     });
   });
+}
+
+export function partitionFundingPurgeCandidates(
+  requests,
+  { preservePayoutBundles = false, preserveRefunds = false } = {},
+) {
+  const deletable = requests.filter((request) => {
+    if (!Object.hasOwn(request, "work")) return false;
+    if (preserveRefunds && (!Array.isArray(request.refunds) || request.refunds.length > 0)) return false;
+    if (request.work === null) return true;
+    if (!preservePayoutBundles || !request.work) return false;
+    return request.work.payoutRequestId === null;
+  });
+  return {
+    deletable,
+    skippedCount: requests.length - deletable.length,
+  };
+}
+
+async function deleteFundingHistory(transaction, requests, { deleteRefunds = false, deleteWork = false } = {}) {
+  const ids = requests.map((request) => request.id);
+  if (ids.length === 0) return { deletedCount: 0 };
+
+  await transaction.$queryRaw`SELECT set_config('ops.allow_funding_history_delete', 'on', true)`;
+  if (deleteRefunds) {
+    await transaction.refundRequest.deleteMany({ where: { fundingRequestId: { in: ids } } });
+  }
+  if (deleteWork) {
+    await transaction.workSubmission.deleteMany({ where: { fundingRequestId: { in: ids } } });
+  }
+  const result = await transaction.fundingRequest.deleteMany({ where: { id: { in: ids } } });
+  if (result.count !== ids.length) {
+    const error = new Error("Funding records changed during cleanup. No records were deleted; refresh and try again.");
+    error.statusCode = 409;
+    throw error;
+  }
+  return { deletedCount: result.count };
+}
+
+export async function purgeRejectedFundingRequests() {
+  return prisma.$transaction(async (transaction) => {
+    const lockedRequests = await transaction.$queryRaw`
+      SELECT "id" FROM "ops"."FundingRequest"
+      WHERE "status" = 'FUNDER_REJECTED'
+      FOR UPDATE
+    `;
+    const requests = lockedRequests.length
+      ? await transaction.fundingRequest.findMany({
+        where: { id: { in: lockedRequests.map((request) => request.id) }, status: "FUNDER_REJECTED" },
+        select: {
+          id: true,
+          work: { select: { id: true } },
+          refunds: { select: { id: true } },
+        },
+      })
+      : [];
+    const { deletable, skippedCount } = partitionFundingPurgeCandidates(requests, { preserveRefunds: true });
+    const { deletedCount } = await deleteFundingHistory(transaction, deletable);
+    return { deletedCount, skippedCount };
+  }, { isolationLevel: "Serializable" });
+}
+
+export async function purgeApprovedRefundedFundingRequests() {
+  return prisma.$transaction(async (transaction) => {
+    const lockedRequests = await transaction.$queryRaw`
+      SELECT funding."id"
+      FROM "ops"."FundingRequest" AS funding
+      WHERE funding."status" = 'REFUNDED'
+        AND EXISTS (
+          SELECT 1 FROM "ops"."RefundRequest" AS refund
+          WHERE refund."fundingRequestId" = funding."id"
+            AND refund."status" = 'APPROVED'
+        )
+      FOR UPDATE OF funding
+    `;
+    const requests = lockedRequests.length
+      ? await transaction.fundingRequest.findMany({
+        where: {
+          id: { in: lockedRequests.map((request) => request.id) },
+          status: "REFUNDED",
+          refunds: { some: { status: "APPROVED" } },
+        },
+        select: { id: true, work: { select: { id: true, payoutRequestId: true } } },
+      })
+      : [];
+    const { deletable, skippedCount } = partitionFundingPurgeCandidates(requests, {
+      preservePayoutBundles: true,
+    });
+    const { deletedCount } = await deleteFundingHistory(transaction, deletable, {
+      deleteRefunds: true,
+      deleteWork: true,
+    });
+    return { deletedCount, skippedCount };
+  }, { isolationLevel: "Serializable" });
 }
 
 export async function approveEmployeeAccount(employeeId, adminId) {

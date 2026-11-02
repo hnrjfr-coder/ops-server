@@ -69,7 +69,7 @@ test("pending refunds hold a cycle slot until the funder decides", () => {
       { status: "REFUND_PENDING", work: null },
       { status: "REFUNDED", work: null },
     ]),
-    "AWAITING_REFUND_OR_REPORT_APPROVAL",
+    "AWAITING_REFUND_APPROVAL",
   );
 });
 
@@ -196,34 +196,31 @@ test("new employees require admin approval while other account types stay active
   assert.equal(getInitialAccountStatus("FUNDER"), "ACTIVE");
 });
 
-test("reported or refunded funding is not eligible for work submission", () => {
-  assert.equal(isFundingRequestEligibleForWork({ status: "APPROVED", work: null, reports: [] }), true);
-  assert.equal(isFundingRequestEligibleForWork({ status: "APPROVED", work: null, reports: [{ id: "report-1" }] }), false);
+test("refunded or already-used funding is not eligible for work submission", () => {
+  assert.equal(isFundingRequestEligibleForWork({ status: "APPROVED", work: null }), true);
   assert.equal(isFundingRequestEligibleForWork({ status: "APPROVED", work: null, refunds: [{ id: "refund-1", status: "REJECTED" }] }), false);
-  assert.equal(isFundingRequestEligibleForWork({ status: "REFUNDED", work: null, reports: [] }), false);
-  assert.equal(isFundingRequestEligibleForWork({ status: "REFUND_PENDING", work: null, reports: [] }), false);
+  assert.equal(isFundingRequestEligibleForWork({ status: "REFUNDED", work: null }), false);
+  assert.equal(isFundingRequestEligibleForWork({ status: "REFUND_PENDING", work: null }), false);
 });
 
-test("active approved funding eligibility excludes requests with report or refund activity", () => {
+test("active approved funding eligibility excludes requests with refund activity", () => {
   assert.deepEqual(getActiveApprovedFundingWhere({ employeeId: "employee-1" }), {
     employeeId: "employee-1",
     status: "APPROVED",
-    reports: { none: {} },
     refunds: { none: {} },
   });
 });
 
-test("unused approved funding excludes requests with linked work or report/refund activity", () => {
+test("unused approved funding excludes requests with linked work or refund activity", () => {
   assert.deepEqual(getUnusedApprovedFundingWhere({ funderId: "funder-1" }), {
     funderId: "funder-1",
     status: "APPROVED",
-    reports: { none: {} },
     refunds: { none: {} },
     work: null,
   });
 });
 
-test("confirmed funding totals retain approvals regardless of later reports or refunds", () => {
+test("confirmed funding totals retain approvals regardless of later refunds", () => {
   assert.deepEqual(getConfirmedFundingWhere({ funderId: "funder-1" }), {
     funderId: "funder-1",
     approvedAt: { not: null },
@@ -273,21 +270,20 @@ test("standard funder request creation rejects supervisors linked to another fun
   );
 });
 
-test("pending refunds or reports block new funding; decisions release their slots", () => {
+test("pending refunds block new funding; refund decisions release their slots", () => {
   const activeRequests = [
     { status: "APPROVED" },
     { status: "PENDING_FUNDER_APPROVAL" },
     { status: "APPROVED", refunds: [{ status: "REJECTED" }] },
-    { status: "APPROVED", reports: [{ status: "PENDING_FUNDER_APPROVAL" }] },
-    { status: "APPROVED", reports: [{ status: "APPROVED" }] },
+    { status: "APPROVED", refunds: [{ status: "PENDING_FUNDER_APPROVAL" }] },
+    { status: "APPROVED", refunds: [{ status: "APPROVED" }] },
   ];
   assert.equal(requestsSinceCompletedBatch(activeRequests), 3);
   assert.equal(getFundingRequestBlockReason(activeRequests), "AWAITING_FUNDER_APPROVAL");
   assert.equal(getFundingRequestBlockReason([
     { status: "APPROVED", refunds: [{ status: "PENDING_FUNDER_APPROVAL" }] },
-  ]), "AWAITING_REFUND_OR_REPORT_APPROVAL");
+  ]), "AWAITING_REFUND_APPROVAL");
   assert.equal(getFundingRequestBlockReason([
     { status: "APPROVED", refunds: [{ status: "REJECTED" }] },
-    { status: "APPROVED", reports: [{ status: "REJECTED" }] },
   ]), null);
 });

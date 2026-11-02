@@ -2,7 +2,6 @@ import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
 import { decideFundingRequest, getFunderFundingSummary, listFunderFundingRequests } from "../services/funding.service.js";
 import { decideRefundRequest, getFunderRefundAccount, listFunderRefundRequests, updateFunderRefundAccount } from "../services/refund.service.js";
-import { decideFundingReport, listFunderFundingReports } from "../services/funding-report.service.js";
 import { createFunderFundingRequest, listFunderAdminFundingRequests } from "../services/funder-funding-request.service.js";
 
 export const funderRouter = Router();
@@ -87,28 +86,6 @@ funderRouter.patch("/requests/:requestId", async (request, response, next) => {
       request.params.requestId,
       String(request.body.decision || "").toUpperCase(),
       request.body.transferConfirmed === true,
-    );
-    response.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
-
-funderRouter.get("/funding-reports", async (request, response, next) => {
-  try {
-    response.json(await listFunderFundingReports(request.authUser.id, request.query));
-  } catch (error) {
-    next(error);
-  }
-});
-
-funderRouter.patch("/funding-reports/:reportId", async (request, response, next) => {
-  try {
-    const result = await decideFundingReport(
-      request.authUser.id,
-      request.params.reportId,
-      String(request.body?.decision || "").toUpperCase(),
-      request.body?.funderNote,
     );
     response.json(result);
   } catch (error) {

@@ -66,7 +66,7 @@ export function sumAdminSubscriptionEarnings(groups = []) {
   }, 0);
 }
 
-function getAdminEarningWorkWhere() {
+export function getAdminEarningSummaryWhere(input = {}) {
   return {
     status: "COMPLETED",
     accountCategory: "SUBSCRIPTION",
@@ -76,7 +76,7 @@ function getAdminEarningWorkWhere() {
         accountName: { in: accountNames },
       },
     },
-    approvedAt: { not: null },
+    approvedAt: { not: null, ...(getDateRange(input) || {}) },
   };
 }
 
@@ -90,10 +90,9 @@ export async function getAdminEarnings(input = {}) {
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
   const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
   const search = String(input.search || "").trim();
-  const approvedAt = getDateRange(input);
+  const summaryWhere = getAdminEarningSummaryWhere(input);
   const where = {
-    ...getAdminEarningWorkWhere(),
-    approvedAt: { not: null, ...(approvedAt || {}) },
+    ...summaryWhere,
     ...(search
       ? {
           OR: [
@@ -127,12 +126,12 @@ export async function getAdminEarnings(input = {}) {
     prisma.workSubmission.count({ where }),
     prisma.workSubmission.groupBy({
       by: ["accountName"],
-      where,
+      where: summaryWhere,
       _count: { _all: true },
     }),
     prisma.workSubmission.groupBy({
       by: ["accountName"],
-      where: getAdminEarningWorkWhere(),
+      where: getAdminEarningSummaryWhere(),
       _count: { _all: true },
     }),
     prisma.workSubmission.groupBy({
@@ -208,7 +207,7 @@ export async function createAdminEarningWithdrawal(input = {}, adminId) {
       const [earnedGroups, withdrawals] = await Promise.all([
         transaction.workSubmission.groupBy({
           by: ["accountName"],
-          where: getAdminEarningWorkWhere(),
+          where: getAdminEarningSummaryWhere(),
           _count: { _all: true },
         }),
         transaction.adminEarningWithdrawal.aggregate({ _sum: { amount: true } }),

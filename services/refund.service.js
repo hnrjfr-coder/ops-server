@@ -75,14 +75,6 @@ export async function getEmployeeRefundDetails(employeeId, fundingRequestId) {
     },
   });
   if (!funding) throw serviceError("Only your approved funding without submitted work can be refunded.", 409);
-  const activeReport = await prisma.fundingReport.findFirst({
-    where: {
-      fundingRequestId: funding.id,
-      status: { in: ["PENDING_FUNDER_APPROVAL", "APPROVED"] },
-    },
-    select: { id: true },
-  });
-  if (activeReport) throw serviceError("This funding already has a pending or approved use-of-funds report and cannot be refunded.", 409);
   assertRefundAccount(funding.funder);
   return funding;
 }
@@ -112,15 +104,6 @@ export async function createEmployeeRefundRequest(employeeId, input = {}) {
     });
     if (!funding) throw serviceError("Only your approved funding without submitted work can be refunded.", 409);
     assertRefundAccount(funding.funder);
-
-    const activeReport = await transaction.fundingReport.findFirst({
-      where: {
-        fundingRequestId: funding.id,
-        status: { in: ["PENDING_FUNDER_APPROVAL", "APPROVED"] },
-      },
-      select: { id: true },
-    });
-    if (activeReport) throw serviceError("This funding already has a pending or approved use-of-funds report and cannot be refunded.", 409);
 
     const requestedAt = new Date();
     const refund = await transaction.refundRequest.create({

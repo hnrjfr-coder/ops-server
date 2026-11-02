@@ -2,26 +2,9 @@ import { Router } from "express";
 import { requireAuthenticatedAccountType, requireFundingRequestsEnabled } from "../middleware/auth.middleware.js";
 import { createFundingRequest, getEmployeeFundingSummary, listEmployeeFundingRequests } from "../services/funding.service.js";
 import { createEmployeeRefundRequest, getEmployeeRefundDetails, listEmployeeRefundRequests } from "../services/refund.service.js";
-import { createEmployeeFundingReport, getEmployeeFundingReportSummary, listEmployeeFundingReports } from "../services/funding-report.service.js";
 
 export const fundingRouter = Router();
 fundingRouter.use(requireAuthenticatedAccountType("EMPLOYEE"));
-
-fundingRouter.get("/reports", async (request, response, next) => {
-  try {
-    response.json(await listEmployeeFundingReports(request.authUser.id, request.query));
-  } catch (error) {
-    next(error);
-  }
-});
-
-fundingRouter.get("/reports/summary", async (request, response, next) => {
-  try {
-    response.json(await getEmployeeFundingReportSummary(request.authUser.id));
-  } catch (error) {
-    next(error);
-  }
-});
 
 fundingRouter.get("/refunds", async (request, response, next) => {
   try {
@@ -73,15 +56,6 @@ fundingRouter.post("/", requireFundingRequestsEnabled, async (request, response,
   try {
     const fundingRequest = await createFundingRequest(request.authUser.id, request.body);
     response.status(201).json(fundingRequest);
-  } catch (error) {
-    next(error);
-  }
-});
-
-fundingRouter.post("/:requestId/report", async (request, response, next) => {
-  try {
-    const report = await createEmployeeFundingReport(request.authUser.id, request.params.requestId);
-    response.status(201).json(report);
   } catch (error) {
     next(error);
   }

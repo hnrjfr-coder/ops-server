@@ -1,6 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { summarizeAdminPayoutGroups, summarizeManualPayoutWorks } from "./payout.service.js";
+import {
+  getEmployeePayoutAmount,
+  summarizeAdminPayoutGroups,
+  summarizeManualPayoutWorks,
+} from "./payout.service.js";
+
+test("employee payout amount allows any selected work count at or above the minimum", () => {
+  assert.equal(getEmployeePayoutAmount(20), 60000);
+  assert.equal(getEmployeePayoutAmount(25), 75000);
+});
+
+test("employee payout amount rejects counts below the minimum or exceeding the database integer limit", () => {
+  assert.throws(() => getEmployeePayoutAmount(19), {
+    message: "A payout requires at least 20 confirmed works.",
+    statusCode: 400,
+  });
+  assert.throws(() => getEmployeePayoutAmount(1_000_000), {
+    message: "The selected works exceed the maximum payout amount.",
+    statusCode: 400,
+  });
+});
 
 test("admin payout summary totals pending and paid requests and excludes rejected requests", () => {
   assert.deepEqual(summarizeAdminPayoutGroups([

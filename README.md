@@ -29,8 +29,8 @@ Use `npx prisma studio` to inspect the Supabase database. OPS tables are
 created under the dedicated `ops` schema, leaving other schemas untouched.
 
 Administrators can pause and reopen new employee funding requests in Admin Settings.
-Existing approved funding can still be used to submit work, and refund, use-of-funds
-report, and payout requests remain available. Apply the schema with
+Existing approved funding can still be used to submit work, and refund and payout
+requests remain available. Apply the schema with
 `npx prisma db push` before deploying the backend. While requests are paused,
 employee dashboards show a period-end notice and the API rejects new funding
 requests; other existing workflows remain available.
@@ -118,9 +118,12 @@ both the work and funding request `COMPLETED`. A funder rejection is
 
 Each supervisor-approved work in `COMPLETED` status earns a fixed payout of
 3,000, independent of the work's funding budget. Employees can request a
-payout only after 20 confirmed works are available, for a server-calculated
-total of 60,000. `POST /api/payouts/requests` takes no work IDs or amount; the
-backend atomically assigns the oldest 20 eligible works to one payout request.
+payout after at least 20 confirmed works are available. They choose how many
+eligible works to include; the server calculates the amount at 3,000 per work
+(20 works = 60,000) and atomically assigns the oldest selected works to the
+request. `POST /api/payouts/requests` accepts `{ "workCount": 20 }` or a larger
+integer up to the number of eligible works; the server validates the count and
+amount.
 Assigned works cannot be used in another request, including when an admin
 rejects the payout. Requests snapshot the employee and payout account details.
 
@@ -169,13 +172,19 @@ Indexes support the date and status filters; apply
 the additive Prisma schema with `npm run db:push` after review.
 
 Funding requests are archived rather than physically deleted so their history
-continues to support employee funding-cycle calculations. After applying the
-Prisma schema, install the database-level guard with
+continues to support employee funding-cycle calculations. Funding Reports have
+been removed; applying the Prisma schema drops `ops."FundingReport"` and
+permanently deletes its records. Deploy the application version that no longer
+uses Funding Reports, then back up the database and verify the target
+environment before running `npx prisma db push`. After applying the Prisma
+schema, install the database-level guard with
 `npm run db:guard-funding-history`; it rejects accidental SQL `DELETE` and
-`TRUNCATE` statements against funding requests, work submissions, funding
-reports, and refunds. Back up the database before either database operation.
-Database owners can still deliberately bypass or remove this guard, so do not
-manually delete funding-cycle history.
+`TRUNCATE` statements against funding requests, work submissions, and refunds.
+The admin analytics cleanup actions use a transaction-local guard setting for
+their narrowly scoped deletions; `TRUNCATE` remains blocked. Back up the
+database before either database operation. Database owners can still
+deliberately bypass or remove this guard, so do not manually delete
+funding-cycle history.
 
 To hide already-refunded funding requests from analytics without deleting
 their history, run `npm run db:archive-refunded-funding`. This archives only

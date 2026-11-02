@@ -14,7 +14,7 @@ const paginatedResult = (items, total, page, pageSize) => ({
 });
 
 export const isFundingRequestEligibleForWork = (request) =>
-  request?.status === "APPROVED" && !request.work && !request.reports?.length && !request.refunds?.length;
+  request?.status === "APPROVED" && !request.work && !request.refunds?.length;
 
 const paginationFor = (input = {}) => {
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
@@ -51,15 +51,14 @@ export async function createWorkSubmission(input, database = prisma) {
     }
     await transaction.$queryRaw`SELECT "id" FROM "ops"."FundingRequest" WHERE "id" = ${fundingRequestId} FOR UPDATE`;
     const fundingRequest = await transaction.fundingRequest.findFirst({
-      where: { id: fundingRequestId, employeeId, status: "APPROVED", work: null, reports: { none: {} }, refunds: { none: {} } },
+      where: { id: fundingRequestId, employeeId, status: "APPROVED", work: null, refunds: { none: {} } },
       include: {
         supervisor: { select: { id: true, status: true, accountType: true } },
-        reports: { select: { id: true }, take: 1 },
         refunds: { select: { id: true }, take: 1 },
       },
     });
     if (!fundingRequest) {
-      const error = new Error("This funding is no longer eligible for work submission. Reported, refunded, or already-used funding cannot be selected.");
+      const error = new Error("This funding is no longer eligible for work submission. Refunded or already-used funding cannot be selected.");
       error.statusCode = 409;
       throw error;
     }
@@ -83,7 +82,7 @@ export async function createWorkSubmission(input, database = prisma) {
 
     const submittedAt = new Date();
     const claimedRequest = await transaction.fundingRequest.updateMany({
-      where: { id: fundingRequestId, employeeId, status: "APPROVED", reports: { none: {} }, refunds: { none: {} } },
+      where: { id: fundingRequestId, employeeId, status: "APPROVED", refunds: { none: {} } },
       data: { status: "UNDER_SUPERVISOR_REVIEW", lastStatusChangedAt: submittedAt },
     });
     if (claimedRequest.count !== 1) {

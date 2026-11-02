@@ -11,57 +11,55 @@ datasource db {
 }
 
 model User {
-  id                          String           @id @default(cuid())
-  email                       String           @unique
-  name                        String           @default("")
-  passwordHash                String?
-  role                        String           @default("EMPLOYEE")
-  status                      String           @default("ACTIVE")
-  phone                       String?
-  managerId                   String?
-  manager                     User?            @relation("SupervisorEmployees", fields: [managerId], references: [id], onDelete: SetNull)
-  managedEmployees            User[]           @relation("SupervisorEmployees")
-  adminApproverId             String?
-  adminApprover               User?            @relation("EmployeeAdminApproval", fields: [adminApproverId], references: [id], onDelete: SetNull)
-  adminApprovedEmployees      User[]           @relation("EmployeeAdminApproval")
-  funderId                    String?
-  funder                      User?            @relation("FunderSupervisors", fields: [funderId], references: [id], onDelete: SetNull)
-  supervisors                 User[]           @relation("FunderSupervisors")
-  supervisor                  String?
-  accountType                 String           @default("EMPLOYEE")
-  department                  String?
-  bank                        String?
-  accountName                 String?
-  accountNumber               String?
-  fundingBankName             String?
-  fundingAccountHolderName    String?
-  fundingAccountNumber        String?
-  payoutBankName              String?
-  payoutAccountHolderName     String?
-  payoutAccountNumber         String?
-  refundBankName              String?
-  refundAccountHolderName     String?
-  refundAccountNumber         String?
-  createdAt                   DateTime         @default(now())
-  adminApprovedAt             DateTime?
-  updatedAt                   DateTime         @updatedAt
-  work                        WorkSubmission[]
-  payments                    PaymentRequest[]
-  payoutRequests              PayoutRequest[]  @relation("EmployeePayoutRequests")
-  reviewedPayoutRequests      PayoutRequest[]  @relation("AdminPayoutReviews")
-  adminEarningWithdrawals     AdminEarningWithdrawal[] @relation("AdminEarningWithdrawals")
-  supervisedWork              WorkSubmission[] @relation("SupervisorWork")
-  supervisedPayments          PaymentRequest[] @relation("SupervisorPayments")
-  fundingRequestsAsEmployee   FundingRequest[] @relation("FundingRequestEmployee")
-  fundingRequestsAsFunder     FundingRequest[] @relation("FundingRequestFunder")
-  fundingRequestsAsSupervisor FundingRequest[] @relation("FundingRequestSupervisor")
-  archivedFundingRequests     FundingRequest[] @relation("FundingRequestArchivedBy")
-  refundRequestsAsEmployee    RefundRequest[]  @relation("RefundRequestEmployee")
-  refundRequestsAsFunder      RefundRequest[]  @relation("RefundRequestFunder")
-  fundingReportsAsEmployee    FundingReport[]  @relation("FundingReportEmployee")
-  fundingReportsAsFunder      FundingReport[]  @relation("FundingReportFunder")
-  funderFundingRequests       FunderFundingRequest[] @relation("FunderFundingRequester")
-  reviewedFunderFundingRequests FunderFundingRequest[] @relation("FunderFundingReviewer")
+  id                            String                   @id @default(cuid())
+  email                         String                   @unique
+  name                          String                   @default("")
+  passwordHash                  String?
+  role                          String                   @default("EMPLOYEE")
+  status                        String                   @default("ACTIVE")
+  phone                         String?
+  managerId                     String?
+  manager                       User?                    @relation("SupervisorEmployees", fields: [managerId], references: [id], onDelete: SetNull)
+  managedEmployees              User[]                   @relation("SupervisorEmployees")
+  adminApproverId               String?
+  adminApprover                 User?                    @relation("EmployeeAdminApproval", fields: [adminApproverId], references: [id], onDelete: SetNull)
+  adminApprovedEmployees        User[]                   @relation("EmployeeAdminApproval")
+  funderId                      String?
+  funder                        User?                    @relation("FunderSupervisors", fields: [funderId], references: [id], onDelete: SetNull)
+  supervisors                   User[]                   @relation("FunderSupervisors")
+  supervisor                    String?
+  accountType                   String                   @default("EMPLOYEE")
+  department                    String?
+  bank                          String?
+  accountName                   String?
+  accountNumber                 String?
+  fundingBankName               String?
+  fundingAccountHolderName      String?
+  fundingAccountNumber          String?
+  payoutBankName                String?
+  payoutAccountHolderName       String?
+  payoutAccountNumber           String?
+  refundBankName                String?
+  refundAccountHolderName       String?
+  refundAccountNumber           String?
+  createdAt                     DateTime                 @default(now())
+  adminApprovedAt               DateTime?
+  updatedAt                     DateTime                 @updatedAt
+  work                          WorkSubmission[]
+  payments                      PaymentRequest[]
+  payoutRequests                PayoutRequest[]          @relation("EmployeePayoutRequests")
+  reviewedPayoutRequests        PayoutRequest[]          @relation("AdminPayoutReviews")
+  adminEarningWithdrawals       AdminEarningWithdrawal[] @relation("AdminEarningWithdrawals")
+  supervisedWork                WorkSubmission[]         @relation("SupervisorWork")
+  supervisedPayments            PaymentRequest[]         @relation("SupervisorPayments")
+  fundingRequestsAsEmployee     FundingRequest[]         @relation("FundingRequestEmployee")
+  fundingRequestsAsFunder       FundingRequest[]         @relation("FundingRequestFunder")
+  fundingRequestsAsSupervisor   FundingRequest[]         @relation("FundingRequestSupervisor")
+  archivedFundingRequests       FundingRequest[]         @relation("FundingRequestArchivedBy")
+  refundRequestsAsEmployee      RefundRequest[]          @relation("RefundRequestEmployee")
+  refundRequestsAsFunder        RefundRequest[]          @relation("RefundRequestFunder")
+  funderFundingRequests         FunderFundingRequest[]   @relation("FunderFundingRequester")
+  reviewedFunderFundingRequests FunderFundingRequest[]   @relation("FunderFundingReviewer")
 
   @@index([accountType, status])
   @@index([accountType, createdAt])
@@ -71,26 +69,26 @@ model User {
 }
 
 model WorkSubmission {
-  id               String          @id @default(cuid())
-  accountName      String          @map("title")
-  legacyDescription String         @map("description")
-  accountCategory  String          @map("category")
-  completedAt      DateTime
-  amount           Int
-  notes            String?
-  status           String          @default("PENDING")
-  submittedAt      DateTime        @default(now())
-  approvedAt       DateTime?
-  updatedAt        DateTime        @updatedAt
-  employeeId       String
-  employee         User            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  supervisorId     String?
-  supervisor       User?           @relation("SupervisorWork", fields: [supervisorId], references: [id], onDelete: SetNull)
-  fundingRequestId String?         @unique
-  fundingRequest   FundingRequest? @relation(fields: [fundingRequestId], references: [id], onDelete: SetNull)
-  payment          PaymentRequest?
-  payoutRequestId  String?
-  payoutRequest    PayoutRequest? @relation(fields: [payoutRequestId], references: [id], onDelete: Restrict)
+  id                String          @id @default(cuid())
+  accountName       String          @map("title")
+  legacyDescription String          @map("description")
+  accountCategory   String          @map("category")
+  completedAt       DateTime
+  amount            Int
+  notes             String?
+  status            String          @default("PENDING")
+  submittedAt       DateTime        @default(now())
+  approvedAt        DateTime?
+  updatedAt         DateTime        @updatedAt
+  employeeId        String
+  employee          User            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  supervisorId      String?
+  supervisor        User?           @relation("SupervisorWork", fields: [supervisorId], references: [id], onDelete: SetNull)
+  fundingRequestId  String?         @unique
+  fundingRequest    FundingRequest? @relation(fields: [fundingRequestId], references: [id], onDelete: SetNull)
+  payment           PaymentRequest?
+  payoutRequestId   String?
+  payoutRequest     PayoutRequest?  @relation(fields: [payoutRequestId], references: [id], onDelete: Restrict)
 
   @@index([employeeId])
   @@index([status])
@@ -103,28 +101,27 @@ model WorkSubmission {
 }
 
 model FundingRequest {
-  id              String          @id @default(cuid())
-  employeeId      String
-  employee        User            @relation("FundingRequestEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
-  funderId        String
-  funder          User            @relation("FundingRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
-  supervisorId    String?
-  supervisor      User?           @relation("FundingRequestSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
-  archivedAt      DateTime?
-  archivedById    String?
-  archivedBy      User?           @relation("FundingRequestArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
-  accountName     String?
-  accountCategory String?
-  amount          Int
-  purpose         String?
-  status          String          @default("PENDING_FUNDER_APPROVAL")
-  requestedAt     DateTime        @default(now())
+  id                  String          @id @default(cuid())
+  employeeId          String
+  employee            User            @relation("FundingRequestEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  funderId            String
+  funder              User            @relation("FundingRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
+  supervisorId        String?
+  supervisor          User?           @relation("FundingRequestSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  archivedAt          DateTime?
+  archivedById        String?
+  archivedBy          User?           @relation("FundingRequestArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
+  accountName         String?
+  accountCategory     String?
+  amount              Int
+  purpose             String?
+  status              String          @default("PENDING_FUNDER_APPROVAL")
+  requestedAt         DateTime        @default(now())
   lastStatusChangedAt DateTime?
-  approvedAt      DateTime?
-  completedAt     DateTime?
-  work            WorkSubmission?
-  refunds          RefundRequest[]
-  reports          FundingReport[]
+  approvedAt          DateTime?
+  completedAt         DateTime?
+  work                WorkSubmission?
+  refunds             RefundRequest[]
 
   @@index([employeeId, status, requestedAt])
   @@index([employeeId, requestedAt])
@@ -139,19 +136,19 @@ model FundingRequest {
 }
 
 model FunderFundingRequest {
-  id                        String   @id @default(cuid())
-  funderId                  String
-  funder                    User     @relation("FunderFundingRequester", fields: [funderId], references: [id], onDelete: Cascade)
-  amount                    Int
-  refundBankName            String
-  refundAccountHolderName   String
-  refundAccountNumber       String
-  status                    String   @default("PENDING")
-  requestedAt               DateTime @default(now())
-  processedAt               DateTime?
-  reviewerId                String?
-  reviewer                  User?    @relation("FunderFundingReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
-  adminNote                 String?
+  id                      String    @id @default(cuid())
+  funderId                String
+  funder                  User      @relation("FunderFundingRequester", fields: [funderId], references: [id], onDelete: Cascade)
+  amount                  Int
+  refundBankName          String
+  refundAccountHolderName String
+  refundAccountNumber     String
+  status                  String    @default("PENDING")
+  requestedAt             DateTime  @default(now())
+  processedAt             DateTime?
+  reviewerId              String?
+  reviewer                User?     @relation("FunderFundingReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  adminNote               String?
 
   @@index([funderId, requestedAt])
   @@index([status, requestedAt])
@@ -159,47 +156,25 @@ model FunderFundingRequest {
 }
 
 model RefundRequest {
-  id                String         @id @default(cuid())
-  fundingRequestId  String
-  fundingRequest    FundingRequest @relation(fields: [fundingRequestId], references: [id], onDelete: Restrict)
-  employeeId        String
-  employee          User           @relation("RefundRequestEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
-  funderId          String
-  funder            User           @relation("RefundRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
-  amount            Int
-  status            String         @default("PENDING_FUNDER_APPROVAL")
-  paymentReference  String?
-  employeeConfirmedAt DateTime      @default(now())
-  requestedAt       DateTime       @default(now())
-  processedAt       DateTime?
-  funderNote        String?
+  id                  String         @id @default(cuid())
+  fundingRequestId    String
+  fundingRequest      FundingRequest @relation(fields: [fundingRequestId], references: [id], onDelete: Restrict)
+  employeeId          String
+  employee            User           @relation("RefundRequestEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  funderId            String
+  funder              User           @relation("RefundRequestFunder", fields: [funderId], references: [id], onDelete: Restrict)
+  amount              Int
+  status              String         @default("PENDING_FUNDER_APPROVAL")
+  paymentReference    String?
+  employeeConfirmedAt DateTime       @default(now())
+  requestedAt         DateTime       @default(now())
+  processedAt         DateTime?
+  funderNote          String?
 
   @@index([employeeId, requestedAt])
   @@index([funderId, status, requestedAt])
   @@index([fundingRequestId, requestedAt])
   @@index([fundingRequestId, status])
-  @@index([status, requestedAt])
-  @@index([processedAt])
-  @@schema("ops")
-}
-
-model FundingReport {
-  id               String         @id @default(cuid())
-  fundingRequestId String
-  fundingRequest   FundingRequest @relation(fields: [fundingRequestId], references: [id], onDelete: Restrict)
-  employeeId       String
-  employee         User           @relation("FundingReportEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
-  funderId         String
-  funder           User           @relation("FundingReportFunder", fields: [funderId], references: [id], onDelete: Restrict)
-  reason           String         @db.VarChar(2000)
-  status           String         @default("PENDING_FUNDER_APPROVAL")
-  requestedAt      DateTime       @default(now())
-  processedAt      DateTime?
-  funderNote        String?
-
-  @@index([employeeId, requestedAt])
-  @@index([funderId, status, requestedAt])
-  @@index([fundingRequestId, requestedAt])
   @@index([status, requestedAt])
   @@index([processedAt])
   @@schema("ops")
@@ -226,24 +201,24 @@ model PaymentRequest {
 }
 
 model PayoutRequest {
-  id                       String   @id @default(cuid())
-  amount                   Int
-  workCount                Int
-  status                   String   @default("PENDING")
-  requestedAt              DateTime @default(now())
-  processedAt              DateTime?
-  adminNote                String?
-  employeeId               String
-  employee                 User     @relation("EmployeePayoutRequests", fields: [employeeId], references: [id], onDelete: Restrict)
-  employeeName             String
-  employeeEmail            String
-    employeePhone            String?
-  payoutBankName           String
-  payoutAccountHolderName   String
-  payoutAccountNumber       String
-  reviewerId               String?
-  reviewer                 User?    @relation("AdminPayoutReviews", fields: [reviewerId], references: [id], onDelete: SetNull)
-  works                    WorkSubmission[]
+  id                      String           @id @default(cuid())
+  amount                  Int
+  workCount               Int
+  status                  String           @default("PENDING")
+  requestedAt             DateTime         @default(now())
+  processedAt             DateTime?
+  adminNote               String?
+  employeeId              String
+  employee                User             @relation("EmployeePayoutRequests", fields: [employeeId], references: [id], onDelete: Restrict)
+  employeeName            String
+  employeeEmail           String
+  employeePhone           String?
+  payoutBankName          String
+  payoutAccountHolderName String
+  payoutAccountNumber     String
+  reviewerId              String?
+  reviewer                User?            @relation("AdminPayoutReviews", fields: [reviewerId], references: [id], onDelete: SetNull)
+  works                   WorkSubmission[]
 
   @@index([employeeId, requestedAt])
   @@index([status, requestedAt])

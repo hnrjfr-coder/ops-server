@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  ADMIN_SUBSCRIPTION_EARNING_RATES,
-  createAdminEarningWithdrawal,
-  getAdminPendingSubscriptionsWhere,
-  getAdminSubscriptionEarning,
-  sumAdminSubscriptionEarnings,
-} from "./admin-earnings.service.js";
+import { ADMIN_SUBSCRIPTION_EARNING_RATES, createAdminEarningWithdrawal, getAdminEarningSummaryWhere, getAdminPendingSubscriptionsWhere, getAdminSubscriptionEarning, sumAdminSubscriptionEarnings } from "./admin-earnings.service.js";
 
 test("admin subscription earnings use the approved per-account rates", () => {
   assert.deepEqual(ADMIN_SUBSCRIPTION_EARNING_RATES, {
@@ -42,6 +36,25 @@ test("pending subscription earnings apply each account's fixed rate", () => {
     ]),
     35_500,
   );
+});
+
+test("admin earnings summary applies the selected inclusive date period, independent of search", () => {
+  const where = getAdminEarningSummaryWhere({
+    from: "2026-11-01",
+    to: "2026-11-30",
+    search: "Metro",
+  });
+  assert.deepEqual(where.approvedAt, {
+    not: null,
+    gte: new Date("2026-11-01T00:00:00.000Z"),
+    lt: new Date("2026-12-01T00:00:00.000Z"),
+  });
+  assert.equal(where.status, "COMPLETED");
+  assert.equal(where.accountCategory, "SUBSCRIPTION");
+});
+
+test("admin earnings summary has no date boundaries for all-time selection", () => {
+  assert.deepEqual(getAdminEarningSummaryWhere().approvedAt, { not: null });
 });
 
 test("admin withdrawals reject invalid amounts and empty or oversized purposes", async () => {

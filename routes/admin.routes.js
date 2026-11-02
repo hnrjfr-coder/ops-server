@@ -1,6 +1,15 @@
 import { Router } from "express";
 import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.js";
-import { approveEmployeeAccount, archiveAdminFundingRecord, getAdminOverview, getAdminSignupNotifications, getAdminStaffDetails, listAdminStaff } from "../services/admin.service.js";
+import {
+  approveEmployeeAccount,
+  archiveAdminFundingRecord,
+  getAdminOverview,
+  getAdminSignupNotifications,
+  getAdminStaffDetails,
+  listAdminStaff,
+  purgeApprovedRefundedFundingRequests,
+  purgeRejectedFundingRequests,
+} from "../services/admin.service.js";
 import { getAdminAnalytics, listAdminAnalyticsRecords } from "../services/analytics.service.js";
 import {
   createAdminEarningWithdrawal,
@@ -73,6 +82,22 @@ adminRouter.get("/analytics", async (request, response, next) => {
 adminRouter.get("/analytics/records", async (request, response, next) => {
   try {
     response.json(await listAdminAnalyticsRecords(request.query));
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.post("/analytics/cleanup/rejected-funding", async (_request, response, next) => {
+  try {
+    response.json(await purgeRejectedFundingRequests());
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.post("/analytics/cleanup/refunded-funding", async (_request, response, next) => {
+  try {
+    response.json(await purgeApprovedRefundedFundingRequests());
   } catch (error) {
     next(error);
   }

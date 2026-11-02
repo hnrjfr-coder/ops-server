@@ -12,12 +12,10 @@ const fixedFundingAmounts = {
 };
 const MAX_FUNDING_REQUESTS_PER_CYCLE = 4;
 const FUNDING_REQUEST_TIME_ZONE = "Africa/Lagos";
-const hasPendingRefundOrReport = (request) =>
-  [...(request.refunds || []), ...(request.reports || [])]
-    .some((activity) => activity.status === "PENDING_FUNDER_APPROVAL");
-const hasDecidedRefundOrReport = (request) =>
-  [...(request.refunds || []), ...(request.reports || [])]
-    .some((activity) => ["APPROVED", "REJECTED"].includes(activity.status));
+const hasPendingRefund = (request) =>
+  (request.refunds || []).some((refund) => refund.status === "PENDING_FUNDER_APPROVAL");
+const hasDecidedRefund = (request) =>
+  (request.refunds || []).some((refund) => ["APPROVED", "REJECTED"].includes(refund.status));
 
 export function isFundingRequestWindowOpen(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -39,7 +37,7 @@ function assertFundingRequestWindowOpen(date = new Date()) {
 export const requestsSinceCompletedBatch = (requests) => {
   const cycleRequests = requests.filter((request) =>
     !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUNDED"].includes(request.status) &&
-    !hasDecidedRefundOrReport(request),
+    !hasDecidedRefund(request),
   );
   for (let index = 0; index <= cycleRequests.length - MAX_FUNDING_REQUESTS_PER_CYCLE; index += 1) {
     const isCompletedBatch = cycleRequests
@@ -53,19 +51,19 @@ export const requestsSinceCompletedBatch = (requests) => {
 export const hasUnsubmittedApprovedFundingRequest = (requests) =>
   requests.some((request) =>
     request.status === "APPROVED" && !request.work &&
-    !hasPendingRefundOrReport(request) && !hasDecidedRefundOrReport(request),
+    !hasPendingRefund(request) && !hasDecidedRefund(request),
   );
 
 export function getFundingRequestBlockReason(requests) {
   const activeRequests = requests.filter((request) =>
     !["FUNDER_REJECTED", "SUPERVISOR_REJECTED", "REFUNDED"].includes(request.status) &&
-    !hasDecidedRefundOrReport(request),
+    !hasDecidedRefund(request),
   );
   if (activeRequests.some((request) => request.status === "PENDING_FUNDER_APPROVAL")) {
     return "AWAITING_FUNDER_APPROVAL";
   }
-  if (activeRequests.some((request) => hasPendingRefundOrReport(request) || request.status === "REFUND_PENDING")) {
-    return "AWAITING_REFUND_OR_REPORT_APPROVAL";
+  if (activeRequests.some((request) => hasPendingRefund(request) || request.status === "REFUND_PENDING")) {
+    return "AWAITING_REFUND_APPROVAL";
   }
   if (hasUnsubmittedApprovedFundingRequest(activeRequests)) return "AWAITING_WORK_SUBMISSION";
   return null;
@@ -142,7 +140,6 @@ export function getActiveApprovedFundingWhere(where = {}) {
   return {
     ...where,
     status: "APPROVED",
-    reports: { none: {} },
     refunds: { none: {} },
   };
 }
@@ -271,14 +268,13 @@ export async function createFundingRequest(employeeId, input) {
     select: {
       status: true,
       work: { select: { id: true } },
-      reports: { orderBy: [{ requestedAt: "desc" }, { id: "desc" }], select: { id: true, status: true }, take: 1 },
       refunds: { orderBy: [{ requestedAt: "desc" }, { id: "desc" }], select: { id: true, status: true }, take: 1 },
     },
   });
   const requestBlockReason = getFundingRequestBlockReason(fundingCycleRequests);
   if (requestBlockReason) {
-    const message = requestBlockReason === "AWAITING_REFUND_OR_REPORT_APPROVAL"
-      ? "Wait for the funder to decide your refund or use-of-funds report before requesting more funding."
+    const message = requestBlockReason === "AWAITING_REFUND_APPROVAL"
+      ? "Wait for the funder to decide your refund before requesting more funding."
       : requestBlockReason === "AWAITING_FUNDER_APPROVAL"
         ? "Wait for your current funding request to be approved before requesting more. Submit work for it before requesting again."
         : "Submit work for your approved funding request before requesting more funding. Supervisor approval is not required to request the next funding.";
@@ -288,7 +284,7 @@ export async function createFundingRequest(employeeId, input) {
   }
   const fundingCycleRequestCount = requestsSinceCompletedBatch(fundingCycleRequests);
   if (fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE) {
-    const error = new Error(`You have reached the limit of ${MAX_FUNDING_REQUESTS_PER_CYCLE} active funding requests in this cycle. Complete all four requests before requesting more. Refund and report requests release a slot after the funder decides them.`);
+    const error = new Error(`You have reached the limit of ${MAX_FUNDING_REQUESTS_PER_CYCLE} active funding requests in this cycle. Complete all four requests before requesting more. Refund decisions release a slot.`);
     error.statusCode = 409;
     throw error;
   }
@@ -348,11 +344,6 @@ export async function listEmployeeFundingRequests(employeeId, input = {}) {
           take: 1,
           select: { id: true, status: true, requestedAt: true, processedAt: true, paymentReference: true, funderNote: true },
         },
-        reports: {
-          orderBy: { requestedAt: "desc" },
-          take: 1,
-          select: { id: true, status: true, requestedAt: true, processedAt: true, funderNote: true },
-        },
       },
       orderBy: { requestedAt: "desc" },
       skip,
@@ -387,13 +378,7 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
           WHERE refund."fundingRequestId" = funding."id"
           ORDER BY refund."requestedAt" DESC, refund."id" DESC
           LIMIT 1
-        ) AS "latestRefundStatus",
-        (
-          SELECT report."status" FROM "ops"."FundingReport" report
-          WHERE report."fundingRequestId" = funding."id"
-          ORDER BY report."requestedAt" DESC, report."id" DESC
-          LIMIT 1
-        ) AS "latestReportStatus"
+        ) AS "latestRefundStatus"
       FROM "ops"."FundingRequest" funding
       WHERE funding."employeeId" = ${employeeId}
     ),
@@ -405,8 +390,6 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
       WHERE request_state."status" NOT IN ('FUNDER_REJECTED', 'SUPERVISOR_REJECTED', 'REFUNDED')
         AND request_state."latestRefundStatus" IS DISTINCT FROM 'APPROVED'
         AND request_state."latestRefundStatus" IS DISTINCT FROM 'REJECTED'
-        AND request_state."latestReportStatus" IS DISTINCT FROM 'APPROVED'
-        AND request_state."latestReportStatus" IS DISTINCT FROM 'REJECTED'
     ),
     reset_point AS (
       SELECT MIN(first_request."position") AS "position"
@@ -428,35 +411,28 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
         COALESCE(BOOL_OR(
           "status" = 'APPROVED' AND NOT "hasWork"
           AND "latestRefundStatus" IS DISTINCT FROM 'PENDING_FUNDER_APPROVAL'
-          AND "latestReportStatus" IS DISTINCT FROM 'PENDING_FUNDER_APPROVAL'
           AND "latestRefundStatus" IS DISTINCT FROM 'APPROVED'
           AND "latestRefundStatus" IS DISTINCT FROM 'REJECTED'
-          AND "latestReportStatus" IS DISTINCT FROM 'APPROVED'
-          AND "latestReportStatus" IS DISTINCT FROM 'REJECTED'
         ), false) AS "awaitingWork"
       FROM cycle_requests
     ),
     activity_flags AS (
       SELECT
         (SELECT COALESCE(BOOL_OR("status" = 'PENDING_FUNDER_APPROVAL'), false) FROM request_state) AS "awaitingFunder",
+        (SELECT COALESCE(BOOL_OR("latestRefundStatus" = 'PENDING_FUNDER_APPROVAL'), false) FROM request_state) AS "hasPendingActivity",
         (SELECT COALESCE(BOOL_OR(
           "latestRefundStatus" = 'PENDING_FUNDER_APPROVAL'
-          OR "latestReportStatus" = 'PENDING_FUNDER_APPROVAL'
-        ), false) FROM request_state) AS "hasPendingActivity",
-        (SELECT COALESCE(BOOL_OR(
-          "latestRefundStatus" = 'PENDING_FUNDER_APPROVAL'
-          OR "latestReportStatus" = 'PENDING_FUNDER_APPROVAL'
           OR "status" = 'REFUND_PENDING'
-        ), false) FROM cycle_requests) AS "awaitingRefundOrReport"
+        ), false) FROM cycle_requests) AS "awaitingRefund"
     )
     SELECT
       COALESCE(reset_point."position"::int - 1, cycle_counts.total) AS "fundingCycleRequestCount",
       cycle_flags."awaitingWork" AS "fundingRequestAwaitingWork",
-      activity_flags."hasPendingActivity" AS "fundingRequestAwaitingRefundOrReportApproval",
+      activity_flags."hasPendingActivity" AS "fundingRequestAwaitingRefundApproval",
       activity_flags."awaitingFunder" AS "fundingRequestAwaitingFunderApproval",
       CASE
         WHEN cycle_flags."awaitingFunder" THEN 'AWAITING_FUNDER_APPROVAL'
-        WHEN activity_flags."awaitingRefundOrReport" THEN 'AWAITING_REFUND_OR_REPORT_APPROVAL'
+        WHEN activity_flags."awaitingRefund" THEN 'AWAITING_REFUND_APPROVAL'
         WHEN cycle_flags."awaitingWork" THEN 'AWAITING_WORK_SUBMISSION'
         ELSE NULL
       END AS "fundingRequestBlockReason"
@@ -473,7 +449,7 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
   const fundingCycleRequestCount = cycleState.fundingCycleRequestCount;
   const fundingRequestBlockReason = cycleState.fundingRequestBlockReason;
   const fundingRequestAwaitingWork = cycleState.fundingRequestAwaitingWork;
-  const fundingRequestAwaitingRefundOrReportApproval = cycleState.fundingRequestAwaitingRefundOrReportApproval;
+  const fundingRequestAwaitingRefundApproval = cycleState.fundingRequestAwaitingRefundApproval;
   const fundingRequestAwaitingFunderApproval = cycleState.fundingRequestAwaitingFunderApproval;
   const fundingRequestCycleLimitReached = fundingCycleRequestCount >= MAX_FUNDING_REQUESTS_PER_CYCLE;
   return {
@@ -484,7 +460,7 @@ export async function getEmployeeFundingSummary(employeeId, input = {}) {
     maxFundingRequestsPerCycle: MAX_FUNDING_REQUESTS_PER_CYCLE,
     fundingCycleRequestCount,
     fundingRequestAwaitingWork,
-    fundingRequestAwaitingRefundOrReportApproval,
+    fundingRequestAwaitingRefundApproval,
     fundingRequestAwaitingFunderApproval,
     fundingRequestCycleLimitReached,
     fundingRequestBlockReason,
@@ -521,11 +497,6 @@ export async function listFunderFundingRequests(funderId, input = {}) {
             orderBy: { requestedAt: "desc" },
             take: 1,
             select: { id: true, status: true, requestedAt: true, employeeConfirmedAt: true, paymentReference: true, funderNote: true },
-          },
-          reports: {
-            orderBy: { requestedAt: "desc" },
-            take: 1,
-            select: { id: true, status: true, requestedAt: true, processedAt: true, funderNote: true },
           },
         }),
       },
@@ -606,11 +577,6 @@ export async function listSupervisorFundingRequests(supervisorId, input = {}) {
         funder: { select: { id: true, name: true } },
         work: { select: { id: true, accountName: true, accountCategory: true, status: true, completedAt: true, submittedAt: true } },
         refunds: {
-          orderBy: { requestedAt: "desc" },
-          take: 1,
-          select: { id: true, status: true, requestedAt: true, processedAt: true },
-        },
-        reports: {
           orderBy: { requestedAt: "desc" },
           take: 1,
           select: { id: true, status: true, requestedAt: true, processedAt: true },

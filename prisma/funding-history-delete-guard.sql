@@ -3,6 +3,11 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  IF TG_OP = 'DELETE'
+    AND current_setting('ops.allow_funding_history_delete', true) = 'on' THEN
+    RETURN OLD;
+  END IF;
+
   RAISE EXCEPTION 'Funding-cycle history is retained. Archive funding requests through the application instead of deleting or truncating history.'
     USING ERRCODE = 'restrict_violation';
 END;
@@ -29,18 +34,6 @@ EXECUTE FUNCTION ops.prevent_funding_history_delete();
 DROP TRIGGER IF EXISTS prevent_work_submission_truncate ON ops."WorkSubmission";
 CREATE TRIGGER prevent_work_submission_truncate
 BEFORE TRUNCATE ON ops."WorkSubmission"
-FOR EACH STATEMENT
-EXECUTE FUNCTION ops.prevent_funding_history_delete();
-
-DROP TRIGGER IF EXISTS prevent_funding_report_delete ON ops."FundingReport";
-CREATE TRIGGER prevent_funding_report_delete
-BEFORE DELETE ON ops."FundingReport"
-FOR EACH ROW
-EXECUTE FUNCTION ops.prevent_funding_history_delete();
-
-DROP TRIGGER IF EXISTS prevent_funding_report_truncate ON ops."FundingReport";
-CREATE TRIGGER prevent_funding_report_truncate
-BEFORE TRUNCATE ON ops."FundingReport"
 FOR EACH STATEMENT
 EXECUTE FUNCTION ops.prevent_funding_history_delete();
 

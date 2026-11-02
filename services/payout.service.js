@@ -1,8 +1,20 @@
 import { prisma } from "../lib/prisma.js";
 import { sendPayoutApprovalSms } from "./sms.service.js";
 
-const WORKS_PER_PAYOUT = 20;
+export const MIN_WORKS_PER_PAYOUT = 20;
 export const PAYOUT_PER_WORK = 3000;
+const MAX_DATABASE_INTEGER = 2_147_483_647;
+
+export function getEmployeePayoutAmount(workCount) {
+  if (!Number.isSafeInteger(workCount) || workCount < MIN_WORKS_PER_PAYOUT) {
+    throw createError(`A payout requires at least ${MIN_WORKS_PER_PAYOUT} confirmed works.`, 400);
+  }
+  const amount = workCount * PAYOUT_PER_WORK;
+  if (amount > MAX_DATABASE_INTEGER) {
+    throw createError("The selected works exceed the maximum payout amount.", 400);
+  }
+  return amount;
+}
 
 const parsePagination = (input = {}) => {
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
@@ -92,7 +104,8 @@ const adminPayoutSelection = {
   reviewer: { select: { id: true, name: true, email: true } },
 };
 
-export async function createEmployeePayoutRequest(employeeId) {
+export async function createEmployeePayoutRequest(employeeId, workCount) {
+  const payoutAmount = getEmployeePayoutAmount(workCount);
   try {
     return await prisma.$transaction(async (transaction) => {
       const employee = await transaction.user.findUnique({
@@ -123,24 +136,24 @@ export async function createEmployeePayoutRequest(employeeId) {
         payoutRequestId: null,
       };
       const eligibleCount = await transaction.workSubmission.count({ where: eligibleWorkWhere });
-      if (eligibleCount < WORKS_PER_PAYOUT) {
-        throw createError(`A payout requires 20 confirmed works. ${eligibleCount} are currently eligible.`, 409);
+      if (eligibleCount < workCount) {
+        throw createError(`Only ${eligibleCount} confirmed works are currently eligible; refresh and choose an available count.`, 409);
       }
 
       const works = await transaction.workSubmission.findMany({
         where: eligibleWorkWhere,
         orderBy: [{ approvedAt: "asc" }, { id: "asc" }],
-        take: WORKS_PER_PAYOUT,
+        take: workCount,
         select: { id: true },
       });
-      if (works.length !== WORKS_PER_PAYOUT) {
+      if (works.length !== workCount) {
         throw createError("The confirmed works changed while preparing the payout. Please try again.", 409);
       }
 
       const payoutRequest = await transaction.payoutRequest.create({
         data: {
-          amount: WORKS_PER_PAYOUT * PAYOUT_PER_WORK,
-          workCount: WORKS_PER_PAYOUT,
+          amount: payoutAmount,
+          workCount,
           employeeId: employee.id,
           employeeName: employee.name,
           employeeEmail: employee.email,
@@ -155,7 +168,7 @@ export async function createEmployeePayoutRequest(employeeId) {
         where: { ...eligibleWorkWhere, id: { in: works.map((work) => work.id) } },
         data: { payoutRequestId: payoutRequest.id },
       });
-      if (claimedWorks.count !== WORKS_PER_PAYOUT) {
+      if (claimedWorks.count !== workCount) {
         throw createError("Some confirmed works were already included in another payout request.", 409);
       }
 
@@ -205,13 +218,13 @@ export async function getEmployeePayoutSummary(employeeId) {
   const requestedWorkCount = payoutGroups.reduce((sum, group) => sum + (group._sum.workCount || 0), 0);
   return {
     payoutPerWork: PAYOUT_PER_WORK,
-    worksPerPayout: WORKS_PER_PAYOUT,
-    payoutAmount: PAYOUT_PER_WORK * WORKS_PER_PAYOUT,
+    worksPerPayout: MIN_WORKS_PER_PAYOUT,
+    payoutAmount: PAYOUT_PER_WORK * MIN_WORKS_PER_PAYOUT,
     confirmedWorkCount,
     eligibleWorkCount,
     eligibleAmount: eligibleWorkCount * PAYOUT_PER_WORK,
     totalReceived: paidGroup?._sum.amount || 0,
-    canRequestPayout: eligibleWorkCount >= WORKS_PER_PAYOUT,
+    canRequestPayout: eligibleWorkCount >= MIN_WORKS_PER_PAYOUT,
     requestedWorkCount,
     payoutRequestCount: payoutGroups.reduce((sum, group) => sum + group._count._all, 0),
   };
@@ -424,9 +437,9 @@ export async function decidePayoutRequest(requestId, reviewerId, decision, admin
     if (payoutRequest.status !== "PENDING") {
       throw createError("Only pending payout requests can be decided.", 409);
     }
-    if (payoutRequest.workCount !== WORKS_PER_PAYOUT
-      || payoutRequest._count.works !== WORKS_PER_PAYOUT
-      || payoutRequest.amount !== WORKS_PER_PAYOUT * PAYOUT_PER_WORK) {
+    if (payoutRequest.workCount < MIN_WORKS_PER_PAYOUT
+      || payoutRequest._count.works !== payoutRequest.workCount
+      || payoutRequest.amount !== payoutRequest.workCount * PAYOUT_PER_WORK) {
       throw createError("Payout request failed its work-bundle integrity check.", 409);
     }
     const confirmedWorkCount = await transaction.workSubmission.count({
@@ -436,8 +449,8 @@ export async function decidePayoutRequest(requestId, reviewerId, decision, admin
         approvedAt: { not: null },
       },
     });
-    if (confirmedWorkCount !== WORKS_PER_PAYOUT) {
-      throw createError("Payout request no longer contains 20 confirmed works.", 409);
+    if (confirmedWorkCount !== payoutRequest.workCount) {
+      throw createError("Payout request no longer contains its confirmed works.", 409);
     }
 
     const updated = await transaction.payoutRequest.updateMany({
