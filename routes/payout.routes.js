@@ -46,9 +46,9 @@ payoutRouter.get("/admin/requests", requireAuthenticatedAccountType("ADMIN"), as
   }
 });
 
-payoutRouter.get("/admin/summary", requireAuthenticatedAccountType("ADMIN"), async (_request, response, next) => {
+payoutRouter.get("/admin/summary", requireAuthenticatedAccountType("ADMIN"), async (request, response, next) => {
   try {
-    response.json(await getAdminPayoutSummary());
+    response.json(await getAdminPayoutSummary(request.query));
   } catch (error) {
     next(error);
   }

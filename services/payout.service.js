@@ -22,6 +22,32 @@ const parsePagination = (input = {}) => {
   return { page, pageSize, skip: (page - 1) * pageSize };
 };
 
+export function getAdminPayoutDateRange(input = {}) {
+  const fromValue = String(input.from || "").trim();
+  const toValue = String(input.to || "").trim();
+  if (Boolean(fromValue) !== Boolean(toValue)) {
+    throw createError("Choose both From and To dates, or clear both dates.", 400);
+  }
+  if (!fromValue) return null;
+
+  const parseDate = (value, label) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw createError(`${label} must use YYYY-MM-DD format.`, 400);
+    }
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+      throw createError(`${label} must be a valid calendar date.`, 400);
+    }
+    return date;
+  };
+
+  const from = parseDate(fromValue, "From");
+  const to = parseDate(toValue, "To");
+  if (from > to) throw createError("From must be on or before To.", 400);
+  to.setUTCDate(to.getUTCDate() + 1);
+  return { gte: from, lt: to };
+}
+
 const paginatedResult = (items, total, page, pageSize) => ({
   items,
   pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) },
@@ -234,10 +260,10 @@ export async function listAdminPayoutRequests(input = {}) {
   const { page, pageSize, skip } = parsePagination(input);
   const search = String(input.search || "").trim();
   const status = String(input.status || "").trim().toUpperCase();
-  const dateRange = input.from || input.to ? getFundingDateRange(input) : null;
+  const dateRange = getAdminPayoutDateRange(input);
   const where = {
     ...(status && status !== "ALL" ? { status } : {}),
-    ...(dateRange ? { requestedAt: { gte: dateRange.start, lt: dateRange.endExclusive } } : {}),
+    ...(dateRange ? { requestedAt: dateRange } : {}),
     ...(search ? {
       OR: [
         { id: { contains: search, mode: "insensitive" } },
@@ -260,10 +286,14 @@ export async function listAdminPayoutRequests(input = {}) {
   return paginatedResult(items, total, page, pageSize);
 }
 
-export async function getAdminPayoutSummary() {
+export async function getAdminPayoutSummary(input = {}) {
+  const dateRange = getAdminPayoutDateRange(input);
   const groups = await prisma.payoutRequest.groupBy({
     by: ["status"],
-    where: { status: { in: ["PENDING", "PAID"] } },
+    where: {
+      status: { in: ["PENDING", "PAID"] },
+      ...(dateRange ? { requestedAt: dateRange } : {}),
+    },
     _count: { _all: true },
     _sum: { amount: true },
   });

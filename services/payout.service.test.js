@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   getEmployeePayoutAmount,
+  getAdminPayoutDateRange,
   summarizeAdminPayoutGroups,
   summarizeManualPayoutWorks,
 } from "./payout.service.js";
@@ -46,6 +47,24 @@ test("admin payout summary returns zero totals when no eligible requests exist",
     totalAmount: 0,
     totalCount: 0,
   });
+});
+
+test("admin payout date range includes both selected dates", () => {
+  assert.deepEqual(getAdminPayoutDateRange({ from: "2026-11-01", to: "2026-11-30" }), {
+    gte: new Date("2026-11-01T00:00:00.000Z"),
+    lt: new Date("2026-12-01T00:00:00.000Z"),
+  });
+  assert.equal(getAdminPayoutDateRange({}), null);
+});
+
+test("admin payout date range rejects partial, invalid, and reversed dates", () => {
+  for (const input of [
+    { from: "2026-11-01" },
+    { from: "2026-02-30", to: "2026-03-02" },
+    { from: "2026-11-30", to: "2026-11-01" },
+  ]) {
+    assert.throws(() => getAdminPayoutDateRange(input), { statusCode: 400 });
+  }
 });
 
 test("manual payout records the admin-entered amount and includes every available approved work", () => {
