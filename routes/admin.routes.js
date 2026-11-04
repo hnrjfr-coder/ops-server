@@ -65,7 +65,7 @@ adminRouter.get("/staff", async (request, response, next) => {
 
 adminRouter.get("/staff/:staffId", async (request, response, next) => {
   try {
-    response.json(await getAdminStaffDetails(request.params.staffId));
+    response.json(await getAdminStaffDetails(request.params.staffId, request.query.month));
   } catch (error) {
     next(error);
   }

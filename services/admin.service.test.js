@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   canArchiveFundingRecord,
+  getAdminStaffWhere,
   getStaffPerformanceMonthRange,
   partitionFundingPurgeCandidates,
 } from "./admin.service.js";
@@ -20,6 +21,25 @@ test("staff performance month rejects malformed calendar months", () => {
       { message: "performanceMonth must use YYYY-MM format.", statusCode: 400 },
     );
   }
+});
+
+test("staff performance mode only returns active employees with at most four submissions", () => {
+  assert.deepEqual(getAdminStaffWhere({
+    status: "PENDING_ADMIN_APPROVAL",
+    performanceMode: true,
+    overLimitEmployeeIds: ["employee-over-limit"],
+  }), {
+    accountType: "EMPLOYEE",
+    status: "ACTIVE",
+    id: { notIn: ["employee-over-limit"] },
+  });
+});
+
+test("normal staff listing retains its selected status filter", () => {
+  assert.deepEqual(getAdminStaffWhere({ status: "PENDING_ADMIN_APPROVAL" }), {
+    accountType: "EMPLOYEE",
+    status: "PENDING_ADMIN_APPROVAL",
+  });
 });
 
 test("rejected funding cleanup skips records with attached work", () => {

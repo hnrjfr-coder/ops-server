@@ -21,6 +21,32 @@ export function getStaffPerformanceMonthRange(monthInput) {
   };
 }
 
+export function getAdminStaffWhere({
+  status = "",
+  search = "",
+  performanceMode = false,
+  overLimitEmployeeIds = [],
+} = {}) {
+  return {
+    ...employeeWhere,
+    ...(performanceMode
+      ? { status: "ACTIVE" }
+      : status && status !== "ALL"
+        ? { status }
+        : {}),
+    ...(search ? {
+      OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { phone: { contains: search, mode: "insensitive" } },
+        { manager: { is: { name: { contains: search, mode: "insensitive" } } } },
+      ],
+    } : {}),
+    ...(performanceMode && overLimitEmployeeIds.length > 0
+      ? { id: { notIn: overLimitEmployeeIds } }
+      : {}),
+  };
+}
+
 const parsePagination = (input = {}) => {
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
   const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
@@ -74,17 +100,7 @@ export async function listAdminStaff(input = {}) {
     ? getStaffPerformanceMonthRange(input.performanceMonth)
     : null;
   let performanceCounts = new Map();
-  const where = {
-    ...employeeWhere,
-    ...(status && status !== "ALL" ? { status } : {}),
-    ...(search ? {
-      OR: [
-        { name: { contains: search, mode: "insensitive" } },
-        { phone: { contains: search, mode: "insensitive" } },
-        { manager: { is: { name: { contains: search, mode: "insensitive" } } } },
-      ],
-    } : {}),
-  };
+  let overLimitEmployeeIds = [];
   if (performanceRange) {
     const counts = await prisma.workSubmission.groupBy({
       by: ["employeeId"],
@@ -92,13 +108,16 @@ export async function listAdminStaff(input = {}) {
       _count: { _all: true },
     });
     performanceCounts = new Map(counts.map((row) => [row.employeeId, row._count._all]));
-    const overLimitEmployeeIds = counts
+    overLimitEmployeeIds = counts
       .filter((row) => row._count._all > 4)
       .map((row) => row.employeeId);
-    if (overLimitEmployeeIds.length > 0) {
-      where.id = { notIn: overLimitEmployeeIds };
-    }
   }
+  const where = getAdminStaffWhere({
+    status,
+    search,
+    performanceMode: Boolean(performanceRange),
+    overLimitEmployeeIds,
+  });
   const [employees, total, statusGroups] = await Promise.all([
     prisma.user.findMany({
       where,
@@ -298,7 +317,10 @@ export async function approveEmployeeAccount(employeeId, adminId) {
   });
 }
 
-export async function getAdminStaffDetails(staffId) {
+export async function getAdminStaffDetails(staffId, monthInput = "") {
+  const performanceRange = monthInput
+    ? getStaffPerformanceMonthRange(monthInput)
+    : null;
   const employee = await prisma.user.findFirst({
     where: { id: staffId, accountType: "EMPLOYEE" },
     select: {
@@ -310,7 +332,16 @@ export async function getAdminStaffDetails(staffId) {
       createdAt: true,
       manager: { select: { id: true, name: true, email: true } },
       work: {
-        take: 10,
+        ...(performanceRange
+          ? {
+              where: {
+                submittedAt: {
+                  gte: performanceRange.from,
+                  lt: performanceRange.to,
+                },
+              },
+            }
+          : { take: 10 }),
         orderBy: { submittedAt: "desc" },
         select: {
           id: true,
@@ -353,6 +384,7 @@ export async function getAdminStaffDetails(staffId) {
 
   return {
     ...employee,
+    ...(performanceRange ? { performanceMonth: performanceRange.month } : {}),
     workSummary: {
       total: employee._count.work,
       completed: completedWorkCount,
