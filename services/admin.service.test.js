@@ -2,8 +2,25 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   canArchiveFundingRecord,
+  getStaffPerformanceMonthRange,
   partitionFundingPurgeCandidates,
 } from "./admin.service.js";
+
+test("staff performance month uses Africa/Lagos month boundaries", () => {
+  const range = getStaffPerformanceMonthRange("2026-11");
+  assert.equal(range.month, "2026-11");
+  assert.equal(range.from.toISOString(), "2026-10-31T23:00:00.000Z");
+  assert.equal(range.to.toISOString(), "2026-11-30T23:00:00.000Z");
+});
+
+test("staff performance month rejects malformed calendar months", () => {
+  for (const month of ["2026-00", "2026-13", "2026-2", "2026-11-01"]) {
+    assert.throws(
+      () => getStaffPerformanceMonthRange(month),
+      { message: "performanceMonth must use YYYY-MM format.", statusCode: 400 },
+    );
+  }
+});
 
 test("rejected funding cleanup skips records with attached work", () => {
   const result = partitionFundingPurgeCandidates([

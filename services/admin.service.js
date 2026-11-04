@@ -3,6 +3,24 @@ import { PAYOUT_PER_WORK } from "./payout.service.js";
 
 const employeeWhere = { accountType: "EMPLOYEE" };
 
+export function getStaffPerformanceMonthRange(monthInput) {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(monthInput || ""));
+  const year = Number(match?.[1]);
+  const month = Number(match?.[2]);
+  if (!match || year < 1000) {
+    const error = new Error("performanceMonth must use YYYY-MM format.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const lagosOffsetMs = 60 * 60 * 1000;
+  return {
+    month: `${match[1]}-${match[2]}`,
+    from: new Date(Date.UTC(year, month - 1, 1) - lagosOffsetMs),
+    to: new Date(Date.UTC(year, month, 1) - lagosOffsetMs),
+  };
+}
+
 const parsePagination = (input = {}) => {
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
   const pageSize = Math.min(50, Math.max(1, Number.parseInt(input.pageSize, 10) || 20));
@@ -52,6 +70,10 @@ export async function listAdminStaff(input = {}) {
   const { page, pageSize, skip } = parsePagination(input);
   const search = String(input.search || "").trim();
   const status = String(input.status || "").trim().toUpperCase();
+  const performanceRange = input.performanceMonth
+    ? getStaffPerformanceMonthRange(input.performanceMonth)
+    : null;
+  let performanceCounts = new Map();
   const where = {
     ...employeeWhere,
     ...(status && status !== "ALL" ? { status } : {}),
@@ -63,6 +85,20 @@ export async function listAdminStaff(input = {}) {
       ],
     } : {}),
   };
+  if (performanceRange) {
+    const counts = await prisma.workSubmission.groupBy({
+      by: ["employeeId"],
+      where: { submittedAt: { gte: performanceRange.from, lt: performanceRange.to } },
+      _count: { _all: true },
+    });
+    performanceCounts = new Map(counts.map((row) => [row.employeeId, row._count._all]));
+    const overLimitEmployeeIds = counts
+      .filter((row) => row._count._all > 4)
+      .map((row) => row.employeeId);
+    if (overLimitEmployeeIds.length > 0) {
+      where.id = { notIn: overLimitEmployeeIds };
+    }
+  }
   const [employees, total, statusGroups] = await Promise.all([
     prisma.user.findMany({
       where,
@@ -91,7 +127,13 @@ export async function listAdminStaff(input = {}) {
   const pendingApprovalCount = countsByStatus.PENDING_ADMIN_APPROVAL || 0;
 
   return {
-    employees,
+    employees: performanceRange
+      ? employees.map((employee) => ({
+          ...employee,
+          monthlySubmittedWorkCount: performanceCounts.get(employee.id) || 0,
+        }))
+      : employees,
+    ...(performanceRange ? { performanceMonth: performanceRange.month } : {}),
     employeeCount,
     activeEmployeeCount,
     pendingApprovalCount,
