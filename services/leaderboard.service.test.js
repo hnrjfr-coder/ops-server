@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   calculateLeaderboardEarnings,
   getCurrentLeaderboardMonth,
+  getLeaderboardMonth,
   rankEmployeeLeaderboard,
 } from "./leaderboard.service.js";
 
@@ -13,6 +14,24 @@ test("leaderboard month boundaries use the Nigeria calendar month", () => {
   assert.equal(result.timeZone, "Africa/Lagos");
   assert.equal(result.start.toISOString(), "2026-09-30T23:00:00.000Z");
   assert.equal(result.end.toISOString(), "2026-10-31T23:00:00.000Z");
+});
+
+test("selected leaderboard month uses exact Nigeria calendar boundaries", () => {
+  const result = getLeaderboardMonth("2026-11");
+
+  assert.equal(result.month, "2026-11");
+  assert.equal(result.timeZone, "Africa/Lagos");
+  assert.equal(result.start.toISOString(), "2026-10-31T23:00:00.000Z");
+  assert.equal(result.end.toISOString(), "2026-11-30T23:00:00.000Z");
+});
+
+test("selected leaderboard month rejects malformed calendar months", () => {
+  for (const month of ["2026-00", "2026-13", "2026-2", "2026-02-01", "0999-12"]) {
+    assert.throws(
+      () => getLeaderboardMonth(month),
+      { message: "month must use YYYY-MM format.", statusCode: 400 },
+    );
+  }
 });
 
 test("leaderboard earnings are fixed at 3000 naira per approved work submission", () => {

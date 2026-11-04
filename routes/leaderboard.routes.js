@@ -7,7 +7,7 @@ leaderboardRouter.use(requireAuthenticatedAccountType("EMPLOYEE", "ADMIN"));
 
 leaderboardRouter.get("/", async (request, response, next) => {
   try {
-    response.json(await getEmployeeLeaderboard());
+    response.json(await getEmployeeLeaderboard(request.query.month));
   } catch (error) {
     next(error);
   }

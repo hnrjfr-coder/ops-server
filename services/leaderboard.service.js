@@ -25,6 +25,27 @@ export function getCurrentLeaderboardMonth(now = new Date()) {
   };
 }
 
+export function getLeaderboardMonth(monthInput, now = new Date()) {
+  if (!monthInput) return getCurrentLeaderboardMonth(now);
+
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(monthInput));
+  const year = Number(match?.[1]);
+  const monthNumber = Number(match?.[2]);
+  if (!match || year < 1000) {
+    const error = new Error("month must use YYYY-MM format.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const offsetMs = 60 * 60 * 1000;
+  return {
+    month: `${match[1]}-${match[2]}`,
+    timeZone: TIME_ZONE,
+    start: new Date(Date.UTC(year, monthNumber - 1, 1) - offsetMs),
+    end: new Date(Date.UTC(year, monthNumber, 1) - offsetMs),
+  };
+}
+
 function assignRelativePoints(rows, metric) {
   const ordered = [...rows].sort((left, right) => right[metric] - left[metric]);
   const points = new Map();
@@ -83,8 +104,8 @@ export function calculateLeaderboardEarnings(completedJobs) {
   return (Number(completedJobs) || 0) * PAYOUT_PER_WORK;
 }
 
-export async function getEmployeeLeaderboard() {
-  const { month, start, end } = getCurrentLeaderboardMonth();
+export async function getEmployeeLeaderboard(monthInput) {
+  const { month, start, end } = getLeaderboardMonth(monthInput);
   const rows = await prisma.$queryRaw`
     SELECT
       employee."id" AS "employeeId",
@@ -97,8 +118,8 @@ export async function getEmployeeLeaderboard() {
         COUNT(*) AS "completedJobs"
       FROM "ops"."WorkSubmission"
       WHERE "status" IN (${Prisma.join(APPROVED_STATUSES)})
-        AND "submittedAt" >= ${start}
-        AND "submittedAt" < ${end}
+        AND "approvedAt" >= ${start}
+        AND "approvedAt" < ${end}
       GROUP BY "employeeId"
     ) AS work ON work."employeeId" = employee."id"
     WHERE employee."accountType" = 'EMPLOYEE'
