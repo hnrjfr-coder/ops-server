@@ -3,6 +3,7 @@ import { requireAuthenticatedAccountType } from "../middleware/auth.middleware.j
 import {
   approveEmployeeAccount,
   archiveAdminFundingRecord,
+  deactivateAdminEmployee,
   getAdminOverview,
   getAdminSignupNotifications,
   getAdminStaffDetails,
@@ -167,6 +168,14 @@ adminRouter.delete("/funder-funding-requests/:requestId", async (request, respon
 adminRouter.patch("/staff/:staffId/approval", async (request, response, next) => {
   try {
     response.json(await approveEmployeeAccount(request.params.staffId, request.authUser.id));
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.patch("/staff/:staffId/deactivation", async (request, response, next) => {
+  try {
+    response.json(await deactivateAdminEmployee(request.params.staffId));
   } catch (error) {
     next(error);
   }

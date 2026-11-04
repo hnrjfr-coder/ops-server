@@ -33,7 +33,7 @@ export function getAdminStaffWhere({
       ? { status: "ACTIVE" }
       : status && status !== "ALL"
         ? { status }
-        : {}),
+        : { status: { not: "DEACTIVATED" } }),
     ...(search ? {
       OR: [
         { name: { contains: search, mode: "insensitive" } },
@@ -314,6 +314,38 @@ export async function approveEmployeeAccount(employeeId, adminId) {
   return prisma.user.findUnique({
     where: { id: employeeId },
     select: { id: true, name: true, email: true, status: true, adminApprovedAt: true, adminApproverId: true },
+  });
+}
+
+export async function deactivateAdminEmployee(employeeId) {
+  const employee = await prisma.user.findFirst({
+    where: { id: employeeId, accountType: "EMPLOYEE" },
+    select: { id: true, status: true },
+  });
+  if (!employee) {
+    const error = new Error("Employee was not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  if (employee.status === "DEACTIVATED") {
+    const error = new Error("This employee account is already deactivated.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const result = await prisma.user.updateMany({
+    where: { id: employee.id, accountType: "EMPLOYEE", status: employee.status },
+    data: { status: "DEACTIVATED" },
+  });
+  if (result.count !== 1) {
+    const error = new Error("The employee account changed before it could be deactivated. Refresh and try again.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return prisma.user.findUnique({
+    where: { id: employee.id },
+    select: { id: true, status: true },
   });
 }
 

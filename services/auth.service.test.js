@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { findUserByAuthIdentity } from "../lib/auth-profile.js";
-import { resolveRegistrationSupervisor } from "./auth.service.js";
+import { assertAccountIsNotDeactivated, resolveRegistrationSupervisor } from "./auth.service.js";
 
 test("auth profile lookup falls back to the normalized email when the auth ID is mismatched", async () => {
   const profile = { id: "legacy-profile-id", email: "employee@example.com" };
@@ -45,4 +45,16 @@ test("registration rejects a funder with multiple active supervisors", () => {
 
 test("employee registration must resolve to the funder's single active supervisor", () => {
   assert.equal(resolveRegistrationSupervisor([{ id: "supervisor-1" }]), "supervisor-1");
+});
+
+test("deactivated accounts cannot authenticate while pending employees retain their approval flow", () => {
+  assert.throws(
+    () => assertAccountIsNotDeactivated({ id: "employee-1", status: "DEACTIVATED" }),
+    {
+      statusCode: 403,
+      message: "This account is not active. Contact an administrator for assistance.",
+    },
+  );
+  assert.doesNotThrow(() => assertAccountIsNotDeactivated({ id: "employee-2", status: "ACTIVE" }));
+  assert.doesNotThrow(() => assertAccountIsNotDeactivated({ id: "employee-3", status: "PENDING_ADMIN_APPROVAL" }));
 });

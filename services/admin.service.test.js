@@ -42,6 +42,17 @@ test("normal staff listing retains its selected status filter", () => {
   });
 });
 
+test("normal staff listing hides deactivated accounts unless explicitly filtered", () => {
+  assert.deepEqual(getAdminStaffWhere(), {
+    accountType: "EMPLOYEE",
+    status: { not: "DEACTIVATED" },
+  });
+  assert.deepEqual(getAdminStaffWhere({ status: "DEACTIVATED" }), {
+    accountType: "EMPLOYEE",
+    status: "DEACTIVATED",
+  });
+});
+
 test("rejected funding cleanup skips records with attached work", () => {
   const result = partitionFundingPurgeCandidates([
     { id: "rejected-1", work: null, refunds: [] },

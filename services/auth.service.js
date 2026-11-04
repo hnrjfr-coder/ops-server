@@ -32,6 +32,14 @@ export function getInitialAccountStatus(accountType) {
   return String(accountType || "").toUpperCase() === "EMPLOYEE" ? "PENDING_ADMIN_APPROVAL" : "ACTIVE";
 }
 
+export function assertAccountIsNotDeactivated(user) {
+  if (user?.status === "DEACTIVATED") {
+    const error = new Error("This account is not active. Contact an administrator for assistance.");
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
 export function resolveRegistrationSupervisor(supervisors) {
   if (supervisors.length !== 1) {
     const error = new Error(supervisors.length === 0
@@ -214,6 +222,7 @@ export async function loginUser(input) {
       profileError.statusCode = 403;
       throw profileError;
     }
+    assertAccountIsNotDeactivated(profile);
     return { user: publicUser(profile), session: data.session };
   }
 
@@ -223,6 +232,7 @@ export async function loginUser(input) {
     error.statusCode = 401;
     throw error;
   }
+  assertAccountIsNotDeactivated(user);
   return { user: publicUser(user), session: null };
 }
 
