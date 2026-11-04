@@ -1,6 +1,9 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
-import { getConfirmedFundingWhere } from "./funding.service.js";
+import {
+  getConfirmedFundingWhere,
+  getUnusedApprovedFundingWhere,
+} from "./funding.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const periods = {
@@ -96,6 +99,10 @@ function indexRows(rows) {
   return new Map(rows.map((row) => [row.bucket, row]));
 }
 
+export function getUnusedFundingWhere() {
+  return getUnusedApprovedFundingWhere();
+}
+
 async function getCurrentSnapshot() {
   const [employeeCount, activeEmployeeCount, pendingFunding, pendingPayouts, pendingRefunds, confirmedFunding, unusedFunding, usedFunding] = await Promise.all([
     prisma.user.count({ where: { accountType: "EMPLOYEE" } }),
@@ -121,12 +128,7 @@ async function getCurrentSnapshot() {
       _sum: { amount: true },
     }),
     prisma.fundingRequest.aggregate({
-      where: {
-        status: "APPROVED",
-        archivedAt: null,
-        work: { is: null },
-        refunds: { none: {} },
-      },
+      where: getUnusedFundingWhere(),
       _count: { _all: true },
       _sum: { amount: true },
     }),
@@ -415,12 +417,7 @@ export async function listAdminAnalyticsRecords(input = {}) {
   }
 
   if (type === "unused-funding") {
-    const where = {
-      status: "APPROVED",
-      archivedAt: null,
-      work: { is: null },
-      refunds: { none: {} },
-    };
+    const where = getUnusedFundingWhere();
     const [items, total] = await Promise.all([
       prisma.fundingRequest.findMany({
         where,
