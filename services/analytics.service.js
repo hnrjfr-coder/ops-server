@@ -427,6 +427,8 @@ export async function listAdminAnalyticsRecords(input = {}) {
         select: {
           id: true,
           employee: { select: { id: true, name: true, phone: true } },
+          funder: { select: { id: true, name: true } },
+          supervisor: { select: { id: true, name: true } },
           accountName: true,
           accountCategory: true,
           amount: true,
@@ -450,6 +452,7 @@ export async function listAdminAnalyticsRecords(input = {}) {
         select: {
           id: true,
           employee: { select: { id: true, name: true, phone: true } },
+          funder: { select: { id: true, name: true } },
           accountName: true,
           accountCategory: true,
           amount: true,
@@ -457,12 +460,17 @@ export async function listAdminAnalyticsRecords(input = {}) {
           requestedAt: true,
           approvedAt: true,
           lastStatusChangedAt: true,
-          completedAt: true,
-          work: { select: { id: true, status: true, submittedAt: true, approvedAt: true, updatedAt: true } },
+          work: { select: { id: true } },
           refunds: {
             orderBy: { requestedAt: "desc" },
             take: 1,
-            select: { id: true, status: true, requestedAt: true, processedAt: true },
+            select: {
+              id: true,
+              status: true,
+              requestedAt: true,
+              processedAt: true,
+              funder: { select: { id: true, name: true } },
+            },
           },
         },
       }),
