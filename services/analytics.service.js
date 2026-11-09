@@ -521,7 +521,23 @@ export async function listAdminAnalyticsRecords(input = {}) {
   }
 
   if (type === "funding") {
-    const where = { archivedAt: null };
+    const status = String(input.status || "").toLowerCase();
+    const statusWhere = {
+      approved: { status: "APPROVED", refunds: { none: {} } },
+      pending: { status: "PENDING_FUNDER_APPROVAL", refunds: { none: {} } },
+      rejected: { status: "FUNDER_REJECTED", refunds: { none: {} } },
+      refund: {
+        OR: [
+          { refunds: { some: {} } },
+          { status: "REFUNDED" },
+          { status: "REFUND_PENDING" },
+        ],
+      },
+    };
+    if (status && !Object.hasOwn(statusWhere, status)) {
+      throw invalidInput("status must be approved, pending, rejected, or refund.");
+    }
+    const where = { archivedAt: null, ...(status ? statusWhere[status] : {}) };
     const [items, total] = await Promise.all([
       prisma.fundingRequest.findMany({
         where,

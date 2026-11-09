@@ -155,3 +155,46 @@ test("unused funding drilldown applies the selected approval month", async (t) =
   });
   assert.equal(capturedWhere.archivedAt, null);
 });
+
+test("funding records can be filtered by their displayed status", async (t) => {
+  const originalMethods = {
+    findMany: prisma.fundingRequest.findMany,
+    count: prisma.fundingRequest.count,
+  };
+  t.after(() => {
+    prisma.fundingRequest.findMany = originalMethods.findMany;
+    prisma.fundingRequest.count = originalMethods.count;
+  });
+
+  let capturedWhere;
+  prisma.fundingRequest.findMany = async ({ where }) => {
+    capturedWhere = where;
+    return [];
+  };
+  prisma.fundingRequest.count = async ({ where }) => {
+    capturedWhere = where;
+    return 0;
+  };
+
+  const expectedStatuses = {
+    approved: { status: "APPROVED", refunds: { none: {} } },
+    pending: { status: "PENDING_FUNDER_APPROVAL", refunds: { none: {} } },
+    rejected: { status: "FUNDER_REJECTED", refunds: { none: {} } },
+    refund: {
+      OR: [
+        { refunds: { some: {} } },
+        { status: "REFUNDED" },
+        { status: "REFUND_PENDING" },
+      ],
+    },
+  };
+  for (const [status, expected] of Object.entries(expectedStatuses)) {
+    await listAdminAnalyticsRecords({ type: "funding", status });
+    assert.deepEqual(capturedWhere, { archivedAt: null, ...expected });
+  }
+
+  await assert.rejects(
+    listAdminAnalyticsRecords({ type: "funding", status: "unknown" }),
+    { statusCode: 400 },
+  );
+});
