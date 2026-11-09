@@ -198,7 +198,41 @@ export async function getAdminAnalytics(input = {}) {
     prisma.$queryRaw`
       SELECT ${fundingBucket} AS bucket,
         COUNT(*)::int AS count,
-        COALESCE(SUM("amount"), 0)::float8 AS amount
+        COALESCE(SUM("amount"), 0)::float8 AS amount,
+        COUNT(*) FILTER (
+          WHERE "status" = 'APPROVED'
+            AND NOT EXISTS (
+              SELECT 1 FROM "ops"."RefundRequest" r
+              WHERE r."fundingRequestId" = "ops"."FundingRequest"."id"
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM "ops"."WorkSubmission" w
+              WHERE w."fundingRequestId" = "ops"."FundingRequest"."id"
+            )
+        )::int AS "unusedCount",
+        COALESCE(SUM("amount") FILTER (
+          WHERE "status" = 'APPROVED'
+            AND NOT EXISTS (
+              SELECT 1 FROM "ops"."RefundRequest" r
+              WHERE r."fundingRequestId" = "ops"."FundingRequest"."id"
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM "ops"."WorkSubmission" w
+              WHERE w."fundingRequestId" = "ops"."FundingRequest"."id"
+            )
+        ), 0)::float8 AS "unusedAmount",
+        COUNT(*) FILTER (
+          WHERE EXISTS (
+            SELECT 1 FROM "ops"."WorkSubmission" w
+            WHERE w."fundingRequestId" = "ops"."FundingRequest"."id"
+          )
+        )::int AS "usedCount",
+        COALESCE(SUM("amount") FILTER (
+          WHERE EXISTS (
+            SELECT 1 FROM "ops"."WorkSubmission" w
+            WHERE w."fundingRequestId" = "ops"."FundingRequest"."id"
+          )
+        ), 0)::float8 AS "usedAmount"
       FROM "ops"."FundingRequest"
       WHERE "archivedAt" IS NULL
         AND ${dateRangeFor("approvedAt")}
@@ -301,6 +335,10 @@ export async function getAdminAnalytics(input = {}) {
       funding: {
         transferredCount: funding?.count || 0,
         transferredAmount: toNumber(funding?.amount),
+        unusedCount: funding?.unusedCount || 0,
+        unusedAmount: toNumber(funding?.unusedAmount),
+        usedCount: funding?.usedCount || 0,
+        usedAmount: toNumber(funding?.usedAmount),
         requestedCount: fundingRequests?.requestedCount || 0,
         requestedAmount: toNumber(fundingRequests?.requestedAmount),
         pendingCount: fundingRequests?.pendingCount || 0,
@@ -332,6 +370,10 @@ export async function getAdminAnalytics(input = {}) {
   const periodTotals = series.reduce((totals, bucket) => {
     totals.fundingTransferredCount += bucket.funding.transferredCount;
     totals.fundingTransferredAmount += bucket.funding.transferredAmount;
+    totals.unusedFundingCount += bucket.funding.unusedCount;
+    totals.unusedFundingAmount += bucket.funding.unusedAmount;
+    totals.usedFundingCount += bucket.funding.usedCount;
+    totals.usedFundingAmount += bucket.funding.usedAmount;
     totals.fundingRequestedCount += bucket.funding.requestedCount;
     totals.fundingRequestedAmount += bucket.funding.requestedAmount;
     totals.fundingPendingCount += bucket.funding.pendingCount;
@@ -356,6 +398,10 @@ export async function getAdminAnalytics(input = {}) {
   }, {
     fundingTransferredCount: 0,
     fundingTransferredAmount: 0,
+    unusedFundingCount: 0,
+    unusedFundingAmount: 0,
+    usedFundingCount: 0,
+    usedFundingAmount: 0,
     fundingRequestedCount: 0,
     fundingRequestedAmount: 0,
     fundingPendingCount: 0,
@@ -441,7 +487,16 @@ export async function listAdminAnalyticsRecords(input = {}) {
   }
 
   if (type === "unused-funding") {
-    const where = getUnusedFundingWhere();
+    const where = { ...getUnusedFundingWhere(), archivedAt: null };
+    if (input.from || input.to) {
+      if (!input.from || !input.to) {
+        throw invalidInput("Provide both from and to dates for unused funding records.");
+      }
+      const from = utcDate(String(input.from), "from");
+      const to = utcDate(String(input.to), "to");
+      if (from > to) throw invalidInput("from must be on or before to.");
+      where.approvedAt = { gte: from, lt: new Date(to.getTime() + DAY_MS) };
+    }
     const [items, total] = await Promise.all([
       prisma.fundingRequest.findMany({
         where,
