@@ -165,18 +165,33 @@ async function getCurrentSnapshot() {
 export async function getAdminAnalytics(input = {}) {
   const period = String(input.period || "day").toLowerCase();
   if (!Object.hasOwn(periods, period)) throw invalidInput("period must be day, month, or year.");
+  const scope = String(input.scope || "").toLowerCase();
+  if (scope && scope !== "all-time") throw invalidInput("scope must be all-time when provided.");
+  const allTime = scope === "all-time";
 
-  const { from, to, endExclusive } = getDateRange(period, input);
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const { from, to, endExclusive } = allTime
+    ? { from: today, to: today, endExclusive: new Date(today.getTime() + DAY_MS) }
+    : getDateRange(period, input);
   const dateFormat = periods[period].dateFormat;
-  const fundingBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const fundingPendingBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const fundingRejectedBucket = Prisma.sql`to_char(date_trunc(${period}, "lastStatusChangedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const payoutRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const payoutDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const refundRequestBucket = Prisma.sql`to_char(date_trunc(${period}, "requestedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const refundDecisionBucket = Prisma.sql`to_char(date_trunc(${period}, "processedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const workBucket = Prisma.sql`to_char(date_trunc(${period}, "approvedAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
-  const employeeBucket = Prisma.sql`to_char(date_trunc(${period}, "createdAt" AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const bucketFor = (column) =>
+    allTime
+      ? Prisma.sql`'All time'`
+      : Prisma.sql`to_char(date_trunc(${period}, ${Prisma.raw(`"${column}"`)} AT TIME ZONE 'UTC'), ${dateFormat})`;
+  const dateRangeFor = (column) =>
+    allTime
+      ? Prisma.sql`TRUE`
+      : Prisma.sql`${Prisma.raw(`"${column}"`)} >= ${from} AND ${Prisma.raw(`"${column}"`)} < ${endExclusive}`;
+  const fundingBucket = bucketFor("approvedAt");
+  const fundingPendingBucket = bucketFor("requestedAt");
+  const fundingRejectedBucket = bucketFor("lastStatusChangedAt");
+  const payoutRequestBucket = bucketFor("requestedAt");
+  const payoutDecisionBucket = bucketFor("processedAt");
+  const refundRequestBucket = bucketFor("requestedAt");
+  const refundDecisionBucket = bucketFor("processedAt");
+  const workBucket = bucketFor("approvedAt");
+  const employeeBucket = bucketFor("createdAt");
 
   const [current, fundingRows, fundingRequestRows, fundingRejectedRows, payoutRequestRows, payoutDecisionRows, refundRequestRows, refundDecisionRows, workRows, employeeRows] = await Promise.all([
     getCurrentSnapshot(),
@@ -185,7 +200,8 @@ export async function getAdminAnalytics(input = {}) {
         COUNT(*)::int AS count,
         COALESCE(SUM("amount"), 0)::float8 AS amount
       FROM "ops"."FundingRequest"
-      WHERE "archivedAt" IS NULL AND "approvedAt" >= ${from} AND "approvedAt" < ${endExclusive}
+      WHERE "archivedAt" IS NULL
+        AND ${dateRangeFor("approvedAt")}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -195,7 +211,8 @@ export async function getAdminAnalytics(input = {}) {
         COUNT(*) FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL')::int AS "pendingCount",
         COALESCE(SUM("amount") FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL'), 0)::float8 AS "pendingAmount"
       FROM "ops"."FundingRequest"
-      WHERE "archivedAt" IS NULL AND "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
+      WHERE "archivedAt" IS NULL
+        AND ${dateRangeFor("requestedAt")}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -205,8 +222,7 @@ export async function getAdminAnalytics(input = {}) {
       FROM "ops"."FundingRequest"
       WHERE "archivedAt" IS NULL
         AND "status" = 'FUNDER_REJECTED'
-        AND "lastStatusChangedAt" >= ${from}
-        AND "lastStatusChangedAt" < ${endExclusive}
+        AND ${dateRangeFor("lastStatusChangedAt")}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -214,7 +230,7 @@ export async function getAdminAnalytics(input = {}) {
         COUNT(*)::int AS count,
         COALESCE(SUM("amount"), 0)::float8 AS amount
       FROM "ops"."PayoutRequest"
-      WHERE "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
+        WHERE ${dateRangeFor("requestedAt")}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -223,7 +239,7 @@ export async function getAdminAnalytics(input = {}) {
         COALESCE(SUM("amount") FILTER (WHERE "status" IN ('PAID', 'APPROVED')), 0)::float8 AS "paidAmount",
         COUNT(*) FILTER (WHERE "status" = 'REJECTED')::int AS "rejectedCount"
       FROM "ops"."PayoutRequest"
-      WHERE "processedAt" >= ${from} AND "processedAt" < ${endExclusive}
+        WHERE ${dateRangeFor("processedAt")}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -233,7 +249,7 @@ export async function getAdminAnalytics(input = {}) {
         COUNT(*) FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL')::int AS "pendingCount",
         COALESCE(SUM("amount") FILTER (WHERE "status" = 'PENDING_FUNDER_APPROVAL'), 0)::float8 AS "pendingAmount"
       FROM "ops"."RefundRequest"
-      WHERE "requestedAt" >= ${from} AND "requestedAt" < ${endExclusive}
+      WHERE ${dateRangeFor("requestedAt")}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
@@ -242,19 +258,21 @@ export async function getAdminAnalytics(input = {}) {
         COALESCE(SUM("amount") FILTER (WHERE "status" = 'APPROVED'), 0)::float8 AS "approvedAmount",
         COUNT(*) FILTER (WHERE "status" = 'REJECTED')::int AS "rejectedCount"
       FROM "ops"."RefundRequest"
-      WHERE "processedAt" >= ${from} AND "processedAt" < ${endExclusive}
+      WHERE ${dateRangeFor("processedAt")}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
       SELECT ${workBucket} AS bucket, COUNT(*)::int AS count
       FROM "ops"."WorkSubmission"
-      WHERE "status" = 'COMPLETED' AND "approvedAt" >= ${from} AND "approvedAt" < ${endExclusive}
+      WHERE "status" = 'COMPLETED'
+        AND ${dateRangeFor("approvedAt")}
       GROUP BY 1 ORDER BY 1
     `,
     prisma.$queryRaw`
       SELECT ${employeeBucket} AS bucket, COUNT(*)::int AS count
       FROM "ops"."User"
-      WHERE "accountType" = 'EMPLOYEE' AND "createdAt" >= ${from} AND "createdAt" < ${endExclusive}
+      WHERE "accountType" = 'EMPLOYEE'
+        AND ${dateRangeFor("createdAt")}
       GROUP BY 1 ORDER BY 1
     `,
   ]);
@@ -268,7 +286,7 @@ export async function getAdminAnalytics(input = {}) {
   const refundDecisionsByBucket = indexRows(refundDecisionRows);
   const worksByBucket = indexRows(workRows);
   const employeesByBucket = indexRows(employeeRows);
-  const series = createBuckets(from, to, period).map((bucket) => {
+  const series = (allTime ? ["All time"] : createBuckets(from, to, period)).map((bucket) => {
     const funding = fundingByBucket.get(bucket);
     const fundingRequests = fundingRequestsByBucket.get(bucket);
     const fundingRejected = fundingRejectedByBucket.get(bucket);
@@ -361,7 +379,13 @@ export async function getAdminAnalytics(input = {}) {
   });
 
   return {
-    filters: { period, from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10), timezone: "UTC" },
+    filters: {
+      period,
+      scope: allTime ? "all-time" : "period",
+      from: allTime ? null : from.toISOString().slice(0, 10),
+      to: allTime ? null : to.toISOString().slice(0, 10),
+      timezone: "UTC",
+    },
     current,
     periodTotals,
     series,
