@@ -1,6 +1,9 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
-import { getFundingDateRange } from "./funding.service.js";
+import {
+  getFundingDateRange,
+  MAX_FUNDING_REQUESTS_PER_CYCLE,
+} from "./funding.service.js";
 
 const parsePagination = (input = {}) => {
   const page = Math.max(1, Number.parseInt(input.page, 10) || 1);
@@ -43,10 +46,21 @@ export async function createWorkSubmission(input, database = prisma) {
   }
 
   return database.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT "id" FROM "ops"."User" WHERE "id" = ${employeeId} FOR UPDATE`;
     const employee = await transaction.user.findUnique({ where: { id: employeeId } });
     if (!employee || employee.accountType !== "EMPLOYEE" || employee.status !== "ACTIVE") {
       const error = new Error("Active employee account was not found.");
       error.statusCode = 404;
+      throw error;
+    }
+    const pendingWorkCount = await transaction.workSubmission.count({
+      where: { employeeId, status: "UNDER_REVIEW" },
+    });
+    if (pendingWorkCount >= MAX_FUNDING_REQUESTS_PER_CYCLE) {
+      const error = new Error(
+        `You can have at most ${MAX_FUNDING_REQUESTS_PER_CYCLE} work submissions awaiting supervisor review at a time. Wait for a decision before submitting more work.`,
+      );
+      error.statusCode = 409;
       throw error;
     }
     await transaction.$queryRaw`SELECT "id" FROM "ops"."FundingRequest" WHERE "id" = ${fundingRequestId} FOR UPDATE`;

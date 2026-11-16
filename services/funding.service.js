@@ -10,7 +10,7 @@ const fixedFundingAmounts = {
   MONETIZE: { SUBSCRIPTION: 42000, RENEWAL: 49500 },
   NEILA: { SUBSCRIPTION: 35500, RENEWAL: 42000 },
 };
-const MAX_FUNDING_REQUESTS_PER_CYCLE = 4;
+export const MAX_FUNDING_REQUESTS_PER_CYCLE = 4;
 const FUNDING_REQUEST_TIME_ZONE = "Africa/Lagos";
 const hasPendingRefund = (request) =>
   (request.refunds || []).some((refund) => refund.status === "PENDING_FUNDER_APPROVAL");

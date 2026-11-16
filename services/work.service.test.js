@@ -31,6 +31,9 @@ test("work submission preserves an employee ID with a leading newline", async ()
       },
     },
     workSubmission: {
+      async count() {
+        return 0;
+      },
       async create({ data }) {
         return data;
       },
@@ -49,6 +52,47 @@ test("work submission preserves an employee ID with a leading newline", async ()
 
   assert.equal(lookedUpEmployeeId, employeeId);
   assert.equal(work.employeeId, employeeId);
+});
+
+test("work submission is blocked when four submissions are already awaiting supervisor review", async () => {
+  let fundingLookupCalled = false;
+  const transaction = {
+    user: {
+      async findUnique() {
+        return { accountType: "EMPLOYEE", status: "ACTIVE" };
+      },
+    },
+    async $queryRaw() {},
+    workSubmission: {
+      async count({ where }) {
+        assert.deepEqual(where, { employeeId: "employee-1", status: "UNDER_REVIEW" });
+        return 4;
+      },
+    },
+    fundingRequest: {
+      async findFirst() {
+        fundingLookupCalled = true;
+        throw new Error("Funding lookup should not run after the pending-work limit is reached.");
+      },
+    },
+  };
+  const database = {
+    async $transaction(callback) {
+      return callback(transaction);
+    },
+  };
+
+  await assert.rejects(
+    createWorkSubmission(
+      { employeeId: "employee-1", fundingRequestId: "funding-request-1" },
+      database,
+    ),
+    {
+      statusCode: 409,
+      message: "You can have at most 4 work submissions awaiting supervisor review at a time. Wait for a decision before submitting more work.",
+    },
+  );
+  assert.equal(fundingLookupCalled, false);
 });
 
 test("pending submissions occupy earlier pages before reviewed work", () => {
